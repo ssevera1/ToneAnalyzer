@@ -238,10 +238,11 @@ npm run build
 sudo cp -r dist/* /usr/share/nginx/html/
 
 # 5. Configure Nginx for SPA routing
+# Replace your-domain.com with your domain, or use _ to match any hostname (works with just an IP)
 sudo tee /etc/nginx/conf.d/toneanalyzer.conf > /dev/null <<'NGINX'
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name your-domain.com;  # use _ if you only have an IP address
     root /usr/share/nginx/html;
     index index.html;
 
@@ -263,12 +264,34 @@ server {
 }
 NGINX
 
-# 6. Restart Nginx
+# 6. Remove the default Nginx site (avoids conflicts when using server_name _)
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# 7. Restart Nginx
 sudo systemctl restart nginx
 
-# 7. Add HTTPS with Let's Encrypt (required for mic/camera)
+# The app is now accessible at http://<your-ec2-ip>
+# Note: Mic/camera access requires HTTPS (see below).
+
+# 8. Add HTTPS (required for mic/camera in production)
+#
+# Option A — You have a domain name pointed at this server:
 sudo apt install -y certbot python3-certbot-nginx   # Ubuntu
 sudo certbot --nginx -d your-domain.com
+#
+# Option B — IP address only (no domain):
+# Let's Encrypt does not issue certificates for bare IP addresses.
+# Use a self-signed certificate instead:
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/toneanalyzer.key \
+  -out /etc/ssl/certs/toneanalyzer.crt \
+  -subj "/CN=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
+# Then add these lines inside the server block in toneanalyzer.conf:
+#   listen 443 ssl;
+#   ssl_certificate     /etc/ssl/certs/toneanalyzer.crt;
+#   ssl_certificate_key /etc/ssl/private/toneanalyzer.key;
+# Restart Nginx: sudo systemctl restart nginx
+# Access at https://<your-ec2-ip> (your browser will warn about the self-signed cert — accept it)
 ```
 
 ### Option 3: Personal Server (Nginx)
