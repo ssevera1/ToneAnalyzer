@@ -144,6 +144,242 @@ electron/
 └── rtsp-proxy.ts        # RTSP→WebSocket relay
 ```
 
+## Deploying to a Web Server
+
+ToneAnalyzer is a static single-page app. After building, the `dist/` folder can be served from any web server or cloud provider.
+
+> **Important:** Microphone and camera access require HTTPS in production. All deployment methods below include HTTPS configuration.
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+This outputs static files to `dist/`. That folder is everything you need to deploy.
+
+### Option 1: AWS (S3 + CloudFront)
+
+**Using the AWS CLI:**
+
+```bash
+# 1. Create an S3 bucket
+aws s3 mb s3://tone-analyzer-app
+
+# 2. Upload the build
+aws s3 sync dist/ s3://tone-analyzer-app --delete
+
+# 3. Enable static website hosting
+aws s3 website s3://tone-analyzer-app \
+  --index-document index.html \
+  --error-document index.html
+
+# 4. Set bucket policy for public read access
+aws s3api put-bucket-policy --bucket tone-analyzer-app --policy '{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "PublicRead",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::tone-analyzer-app/*"
+  }]
+}'
+```
+
+**Add CloudFront for HTTPS (required for mic/camera):**
+
+```bash
+# 5. Create a CloudFront distribution pointing to the S3 website endpoint
+aws cloudfront create-distribution \
+  --origin-domain-name tone-analyzer-app.s3-website-us-east-1.amazonaws.com \
+  --default-root-object index.html
+```
+
+Or use the AWS Console:
+1. Go to **CloudFront** → **Create Distribution**
+2. Set origin to your S3 bucket website endpoint
+3. Set **Viewer Protocol Policy** to "Redirect HTTP to HTTPS"
+4. Set **Default Root Object** to `index.html`
+5. Under **Error Pages**, add a custom error response: 403/404 → `/index.html` (status 200) — this enables client-side routing
+
+Your app will be available at the CloudFront URL (e.g., `https://d1234abcd.cloudfront.net`).
+
+**Using AWS Amplify (simpler alternative):**
+
+```bash
+# One-command deploy with Amplify
+npm install -g @aws-amplify/cli
+amplify init
+amplify add hosting
+amplify publish
+```
+
+Or connect your GitHub repo directly in the [AWS Amplify Console](https://console.aws.amazon.com/amplify/) for automatic deploys on every push.
+
+### Option 2: AWS EC2 with Nginx
+
+```bash
+# 1. Launch an EC2 instance (Amazon Linux 2 / Ubuntu)
+# 2. SSH into the instance and install dependencies
+sudo yum install -y nginx       # Amazon Linux
+# or
+sudo apt install -y nginx       # Ubuntu
+
+# 3. Clone and build
+git clone https://github.com/ssevera1/ToneAnalyzer.git
+cd ToneAnalyzer
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs      # or sudo yum install -y nodejs
+npm install
+npm run build
+
+# 4. Copy build to Nginx web root
+sudo cp -r dist/* /usr/share/nginx/html/
+
+# 5. Configure Nginx for SPA routing
+sudo tee /etc/nginx/conf.d/toneanalyzer.conf > /dev/null <<'NGINX'
+server {
+    listen 80;
+    server_name your-domain.com;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Cache model files
+    location /models/ {
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+}
+NGINX
+
+# 6. Restart Nginx
+sudo systemctl restart nginx
+
+# 7. Add HTTPS with Let's Encrypt (required for mic/camera)
+sudo apt install -y certbot python3-certbot-nginx   # Ubuntu
+sudo certbot --nginx -d your-domain.com
+```
+
+### Option 3: Personal Server (Nginx)
+
+Works on any Linux server, VPS, Raspberry Pi, or home server.
+
+```bash
+# 1. Install Node.js and Nginx
+sudo apt update && sudo apt install -y nginx nodejs npm
+
+# 2. Clone and build
+git clone https://github.com/ssevera1/ToneAnalyzer.git
+cd ToneAnalyzer
+npm install
+npm run build
+
+# 3. Deploy to Nginx
+sudo mkdir -p /var/www/toneanalyzer
+sudo cp -r dist/* /var/www/toneanalyzer/
+
+# 4. Create Nginx site config
+sudo tee /etc/nginx/sites-available/toneanalyzer > /dev/null <<'NGINX'
+server {
+    listen 80;
+    server_name your-domain.com;   # or your server IP
+    root /var/www/toneanalyzer;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /models/ {
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+}
+NGINX
+
+# 5. Enable the site
+sudo ln -sf /etc/nginx/sites-available/toneanalyzer /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# 6. Add HTTPS with Let's Encrypt
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d your-domain.com
+```
+
+### Option 4: Personal Server (Simple — No Nginx)
+
+For quick testing or LAN-only use:
+
+```bash
+# Serve the build with Vite's preview server
+npm run build
+npm run preview -- --host 0.0.0.0 --port 8080
+
+# Or use any static file server
+npx serve dist -l 8080
+```
+
+Access from other devices on your network at `http://<your-ip>:8080`.
+
+> Note: Without HTTPS, browsers will block microphone/camera access unless the page is served from `localhost`. For LAN use with mic/camera, set up a self-signed certificate or use a reverse proxy with Let's Encrypt.
+
+### Option 5: Docker
+
+```dockerfile
+# Dockerfile
+FROM node:18-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY <<'NGINX' /etc/nginx/conf.d/default.conf
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+NGINX
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+```bash
+docker build -t toneanalyzer .
+docker run -p 8080:80 toneanalyzer
+```
+
+For AWS, push the image to ECR and deploy to ECS, App Runner, or Lightsail Containers.
+
+### Deployment Notes
+
+- **HTTPS is required** for `getUserMedia` (microphone/camera) in production. Only `localhost` is exempt.
+- **Model files** (~520 KB total) are served from `/models/`. Ensure your server/CDN serves `.bin` files with the correct MIME type (`application/octet-stream`).
+- The app is fully client-side — there is no backend server needed. All processing (audio analysis, face detection) runs in the browser.
+- For RTSP/IP camera support, use the Electron desktop build instead of the web deployment.
+
 ## Stress Score Calculation
 
 The composite stress score is a weighted combination:
