@@ -2,8 +2,9 @@ export type Platform = 'electron' | 'ios' | 'web';
 
 export function getPlatform(): Platform {
   if (typeof window !== 'undefined') {
-    if ((window as any).electronAPI) return 'electron';
-    if ((window as any).Capacitor?.isNativePlatform()) return 'ios';
+    if (window.electronAPI) return 'electron';
+    const capacitor = (window as Window & { Capacitor?: { isNativePlatform(): boolean } }).Capacitor;
+    if (capacitor?.isNativePlatform()) return 'ios';
   }
   return 'web';
 }

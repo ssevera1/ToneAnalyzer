@@ -62,6 +62,16 @@ export class VideoSourceManager {
       throw new Error('RTSP is only supported in Electron');
     }
 
+    // Validate RTSP URL scheme before forwarding to proxy
+    if (!/^rtsps?:\/\//i.test(url)) {
+      throw new Error('URL must use rtsp:// or rtsps:// scheme');
+    }
+    try {
+      new URL(url);
+    } catch {
+      throw new Error('Invalid RTSP URL format');
+    }
+
     const id = `rtsp-${nextId++}`;
     const source: VideoSource = {
       id,
@@ -75,7 +85,7 @@ export class VideoSourceManager {
     this.notifyChange();
 
     // RTSP connection is handled via the Electron WebSocket proxy
-    // The VideoPanel component will connect to ws://localhost:9999?url=<rtsp_url>
+    // The VideoPanel component will connect to ws://127.0.0.1:9999?url=<rtsp_url>
     source.status = 'active';
     this.notifyChange();
 

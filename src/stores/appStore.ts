@@ -23,7 +23,17 @@ export const useAppStore = create<AppState>((set) => ({
     defaultExportFormat: 'csv',
   },
   updateSettings: (partial) =>
-    set((state) => ({
-      settings: { ...state.settings, ...partial },
-    })),
+    set((state) => {
+      const ALLOWED_KEYS: (keyof AppSettings)[] = [
+        'defaultAudioDevice', 'stressThreshold', 'defaultGridLayout',
+        'detectionFps', 'defaultExportFormat',
+      ];
+      const sanitized: Partial<AppSettings> = {};
+      for (const key of ALLOWED_KEYS) {
+        if (key in partial) {
+          (sanitized as Record<string, unknown>)[key] = partial[key];
+        }
+      }
+      return { settings: { ...state.settings, ...sanitized } };
+    }),
 }));
