@@ -285,16 +285,49 @@ sudo certbot --nginx -d your-domain.com
 # Option B — IP address only (no domain):
 # Let's Encrypt does not issue certificates for bare IP addresses.
 # Use a self-signed certificate instead:
+
+# B.1. Generate the self-signed certificate
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout /etc/ssl/private/toneanalyzer.key \
   -out /etc/ssl/certs/toneanalyzer.crt \
   -subj "/CN=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
-# Then add these lines inside the server block in toneanalyzer.conf:
-#   listen 443 ssl;
-#   ssl_certificate     /etc/ssl/certs/toneanalyzer.crt;
-#   ssl_certificate_key /etc/ssl/private/toneanalyzer.key;
-# Restart Nginx: sudo systemctl restart nginx
-# Access at https://<your-ec2-ip> (your browser will warn about the self-signed cert — accept it)
+
+# B.2. Replace the Nginx config to serve both HTTP and HTTPS
+sudo tee /etc/nginx/conf.d/toneanalyzer.conf > /dev/null <<'NGINX'
+server {
+    listen 80;
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate     /etc/ssl/certs/toneanalyzer.crt;
+    ssl_certificate_key /etc/ssl/private/toneanalyzer.key;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /models/ {
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+}
+NGINX
+
+# B.3. Restart Nginx
+sudo systemctl restart nginx
+
+# Access at https://<your-ec2-ip> (e.g. https://54.210.123.45)
+# Your browser will warn about the self-signed cert — click
+# "Advanced" → "Proceed" (Chrome) or "Accept the Risk" (Firefox).
+# Mic/camera will then work over HTTPS.
 ```
 
 ### Option 3: Personal Server (Nginx)
