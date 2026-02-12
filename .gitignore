@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-electron/
+ios/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
