@@ -209,16 +209,16 @@ export class StressAnalyzer {
   computeStressScore(metrics: StressMetrics): number {
     // Normalize each metric to 0-1 range
     // Microtremor: lower = more stress (inverted)
-    const microtremorNorm = 1 - Math.min(1, metrics.microtremorAmplitude / 0.001);
+    const microtremorNorm = 1 - Math.min(1, metrics.microtremorAmplitude / 0.01);
 
     // F0 variance: higher = more stress
-    const f0VarNorm = Math.min(1, metrics.f0Variance / 1000);
+    const f0VarNorm = Math.min(1, metrics.f0Variance / 2500);
 
-    // Jitter: higher = more stress (normal < 1%, stressed > 3%)
-    const jitterNorm = Math.min(1, metrics.jitter / 5);
+    // Jitter: higher = more stress (normal < 1%, stressed > 5%)
+    const jitterNorm = Math.min(1, metrics.jitter / 8);
 
-    // Shimmer: higher = more stress (normal < 3%, stressed > 8%)
-    const shimmerNorm = Math.min(1, metrics.shimmer / 10);
+    // Shimmer: higher = more stress (normal < 3%, stressed > 10%)
+    const shimmerNorm = Math.min(1, metrics.shimmer / 15);
 
     // HNR: lower = more stress (inverted, normal > 20dB)
     const hnrNorm = 1 - Math.min(1, metrics.hnr / 25);

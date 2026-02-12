@@ -41,7 +41,7 @@ export default function StressGauge({ value, size = 200, label }: StressGaugePro
   const progressAngle = startAngle + (value / 100) * Math.PI;
   const progressX = center + radius * Math.cos(progressAngle);
   const progressY = center + radius * Math.sin(progressAngle);
-  const largeArc = value > 50 ? 1 : 0;
+  const largeArc = 0; // semicircle arc never exceeds 180° of the full circle
   const progressArc = `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${progressX} ${progressY}`;
 
   return (
