@@ -68,7 +68,7 @@ Labels are color-coded by category and show confidence percentages. Deception in
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20+
 - npm 9+
 
 ### Install & Run
@@ -229,7 +229,7 @@ sudo apt install -y nginx       # Ubuntu
 # 3. Clone and build
 git clone https://github.com/ssevera1/ToneAnalyzer.git
 cd ToneAnalyzer
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs      # or sudo yum install -y nodejs
 npm install
 npm run build
@@ -343,7 +343,7 @@ Access from other devices on your network at `http://<your-ip>:8080`.
 
 ```dockerfile
 # Dockerfile
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
