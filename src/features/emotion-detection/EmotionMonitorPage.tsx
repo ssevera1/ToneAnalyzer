@@ -17,6 +17,7 @@ export default function EmotionMonitorPage() {
     sources,
     readings,
     expressionLabels,
+    primeEmotions,
     gridLayout,
     isMonitoring,
     isEngineReady,
@@ -139,6 +140,7 @@ export default function EmotionMonitorPage() {
             sources={sources}
             readings={readings}
             expressionLabels={expressionLabels}
+            primeEmotions={primeEmotions}
             layout={gridLayout}
             onRemoveSource={removeSource}
             onTogglePause={togglePause}

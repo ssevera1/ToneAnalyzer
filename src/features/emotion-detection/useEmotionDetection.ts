@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useEmotionStore } from '../../stores/emotionStore';
 import { EmotionEngine } from './EmotionEngine';
 import { VideoSourceManager } from './VideoSourceManager';
-import { ExpressionAnalyzer, type ExpressionLabel } from './ExpressionAnalyzer';
+import { ExpressionAnalyzer, type ExpressionLabel, type PrimeEmotion } from './ExpressionAnalyzer';
 import type { VideoSourceType } from '../../types/video';
 
 export function useEmotionDetection() {
@@ -14,6 +14,7 @@ export function useEmotionDetection() {
   const [engineError, setEngineError] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [expressionLabels, setExpressionLabels] = useState<Map<string, ExpressionLabel[]>>(new Map());
+  const [primeEmotions, setPrimeEmotions] = useState<Map<string, PrimeEmotion>>(new Map());
 
   useEffect(() => {
     const engine = new EmotionEngine();
@@ -34,6 +35,16 @@ export function useEmotionDetection() {
         next.set(sourceId, labels);
         return next;
       });
+
+      // Update prime emotion (internally cached, recalculates every 15s)
+      const prime = exprAnalyzer.getPrimeEmotion(sourceId);
+      if (prime) {
+        setPrimeEmotions((prev) => {
+          const next = new Map(prev);
+          next.set(sourceId, prime);
+          return next;
+        });
+      }
     });
 
     manager.setOnChange((sources) => {
@@ -104,6 +115,11 @@ export function useEmotionDetection() {
       next.delete(id);
       return next;
     });
+    setPrimeEmotions((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
   }, [store]);
 
   const togglePause = useCallback((id: string) => {
@@ -144,6 +160,7 @@ export function useEmotionDetection() {
     sources: store.sources,
     readings: store.latestReadings,
     expressionLabels,
+    primeEmotions,
     gridLayout: store.gridLayout,
     isMonitoring: store.isMonitoring,
     isEngineReady,

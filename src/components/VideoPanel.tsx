@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 import type { VideoSource } from '../types/video';
 import type { EmotionReading } from '../types/emotion';
-import type { ExpressionLabel } from '../features/emotion-detection/ExpressionAnalyzer';
+import type { ExpressionLabel, PrimeEmotion } from '../features/emotion-detection/ExpressionAnalyzer';
 import EmotionBadge from './EmotionBadge';
 import ExpressionLabels from './ExpressionLabels';
 
@@ -9,6 +9,7 @@ interface VideoPanelProps {
   source: VideoSource;
   readings: EmotionReading[];
   expressionLabels: ExpressionLabel[];
+  primeEmotion: PrimeEmotion | null;
   onRemove: (id: string) => void;
   onTogglePause: (id: string) => void;
   onVideoRef: (id: string, el: HTMLVideoElement | null) => void;
@@ -22,7 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
   disconnected: '#6b7280',
 };
 
-export default function VideoPanel({ source, readings, expressionLabels, onRemove, onTogglePause, onVideoRef }: VideoPanelProps) {
+export default function VideoPanel({ source, readings, expressionLabels, primeEmotion, onRemove, onTogglePause, onVideoRef }: VideoPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -72,14 +73,30 @@ export default function VideoPanel({ source, readings, expressionLabels, onRemov
     <div className="relative bg-dark-800 rounded-lg border border-dark-600 overflow-hidden flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-dark-700 border-b border-dark-600">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <div
-            className="w-2 h-2 rounded-full"
+            className="w-2 h-2 rounded-full flex-shrink-0"
             style={{ backgroundColor: STATUS_COLORS[source.status] }}
           />
-          <span className="text-xs font-medium text-dark-200 truncate max-w-[120px]">
+          <span className="text-xs font-medium text-dark-200 truncate max-w-[100px]">
             {source.name}
           </span>
+          {primeEmotion && (
+            <span
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold flex-shrink-0 border"
+              style={{
+                backgroundColor: `${primeEmotion.color}15`,
+                color: primeEmotion.color,
+                borderColor: `${primeEmotion.color}40`,
+              }}
+              title={`Prime emotion (last ${primeEmotion.secondsTracked}s): ${primeEmotion.emotion} — ${primeEmotion.percentage.toFixed(0)}% of readings`}
+            >
+              <span>{primeEmotion.icon}</span>
+              <span className="capitalize">{primeEmotion.emotion}</span>
+              <span className="opacity-70">{primeEmotion.percentage.toFixed(0)}%</span>
+              <span className="opacity-40 text-[8px]">60s</span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <button

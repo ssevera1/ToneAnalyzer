@@ -1,6 +1,6 @@
 import type { VideoSource, GridLayout } from '../types/video';
 import type { EmotionReading } from '../types/emotion';
-import type { ExpressionLabel } from '../features/emotion-detection/ExpressionAnalyzer';
+import type { ExpressionLabel, PrimeEmotion } from '../features/emotion-detection/ExpressionAnalyzer';
 import { GRID_CONFIGS } from '../types/video';
 import VideoPanel from './VideoPanel';
 
@@ -8,6 +8,7 @@ interface VideoGridProps {
   sources: VideoSource[];
   readings: Map<string, EmotionReading[]>;
   expressionLabels: Map<string, ExpressionLabel[]>;
+  primeEmotions: Map<string, PrimeEmotion>;
   layout: GridLayout;
   onRemoveSource: (id: string) => void;
   onTogglePause: (id: string) => void;
@@ -19,6 +20,7 @@ export default function VideoGrid({
   sources,
   readings,
   expressionLabels,
+  primeEmotions,
   layout,
   onRemoveSource,
   onTogglePause,
@@ -42,6 +44,7 @@ export default function VideoGrid({
           source={source}
           readings={readings.get(source.id) || []}
           expressionLabels={expressionLabels.get(source.id) || []}
+          primeEmotion={primeEmotions.get(source.id) || null}
           onRemove={onRemoveSource}
           onTogglePause={onTogglePause}
           onVideoRef={onVideoRef}

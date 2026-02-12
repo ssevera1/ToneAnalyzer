@@ -663,10 +663,40 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
+// ─── Prime Emotion (60s window) ─────────────────────────────────────
+
+export interface PrimeEmotion {
+  emotion: Emotion;
+  percentage: number;
+  icon: string;
+  color: string;
+  secondsTracked: number;
+}
+
+const PRIME_EMOTION_WINDOW_MS = 60_000; // 60 seconds
+const PRIME_EMOTION_UPDATE_INTERVAL_MS = 15_000; // recalculate every 15s
+
+const EMOTION_DISPLAY: Record<Emotion, { icon: string; color: string }> = {
+  neutral:   { icon: '😐', color: '#94a3b8' },
+  happy:     { icon: '😊', color: '#22c55e' },
+  sad:       { icon: '😢', color: '#3b82f6' },
+  angry:     { icon: '😠', color: '#ef4444' },
+  fearful:   { icon: '😨', color: '#a855f7' },
+  disgusted: { icon: '🤢', color: '#f97316' },
+  surprised: { icon: '😲', color: '#eab308' },
+};
+
+interface TimestampedEmotion {
+  timestamp: number;
+  emotion: Emotion;
+}
+
 // ─── Main Analyzer ──────────────────────────────────────────────────
 
 export class ExpressionAnalyzer {
   private historyBySource = new Map<string, EmotionReading[]>();
+  private emotionLog = new Map<string, TimestampedEmotion[]>();
+  private primeCache = new Map<string, { result: PrimeEmotion; computedAt: number }>();
 
   /**
    * Analyze a single frame's emotions + recent history to produce derived labels.
@@ -679,6 +709,17 @@ export class ExpressionAnalyzer {
     let history = this.historyBySource.get(sourceId) || [];
     history = [...history, ...readings].slice(-READING_HISTORY_WINDOW);
     this.historyBySource.set(sourceId, history);
+
+    // Feed the 60-second emotion log for prime emotion tracking
+    const now = Date.now();
+    let log = this.emotionLog.get(sourceId) || [];
+    for (const r of readings) {
+      log.push({ timestamp: r.timestamp, emotion: r.dominantEmotion });
+    }
+    // Trim to 60-second window
+    const cutoff = now - PRIME_EMOTION_WINDOW_MS;
+    log = log.filter((e) => e.timestamp >= cutoff);
+    this.emotionLog.set(sourceId, log);
 
     const labels: ExpressionLabel[] = [];
 
@@ -725,11 +766,66 @@ export class ExpressionAnalyzer {
     return labels.slice(0, 8);
   }
 
+  /**
+   * Get the prime (most frequent dominant) emotion over the past 60 seconds.
+   * Cached and recalculated every 15 seconds for performance.
+   */
+  getPrimeEmotion(sourceId: string): PrimeEmotion | null {
+    const now = Date.now();
+    const cached = this.primeCache.get(sourceId);
+    if (cached && now - cached.computedAt < PRIME_EMOTION_UPDATE_INTERVAL_MS) {
+      return cached.result;
+    }
+
+    const log = this.emotionLog.get(sourceId);
+    if (!log || log.length === 0) return null;
+
+    // Filter to last 60 seconds
+    const cutoff = now - PRIME_EMOTION_WINDOW_MS;
+    const recent = log.filter((e) => e.timestamp >= cutoff);
+    if (recent.length === 0) return null;
+
+    // Count occurrences of each dominant emotion
+    const counts: Record<string, number> = {};
+    for (const entry of recent) {
+      counts[entry.emotion] = (counts[entry.emotion] || 0) + 1;
+    }
+
+    // Find the most frequent
+    let topEmotion: Emotion = 'neutral';
+    let topCount = 0;
+    for (const [emotion, count] of Object.entries(counts)) {
+      if (count > topCount) {
+        topCount = count;
+        topEmotion = emotion as Emotion;
+      }
+    }
+
+    const percentage = (topCount / recent.length) * 100;
+    const display = EMOTION_DISPLAY[topEmotion];
+    const secondsTracked = Math.min(60, (now - recent[0].timestamp) / 1000);
+
+    const result: PrimeEmotion = {
+      emotion: topEmotion,
+      percentage,
+      icon: display.icon,
+      color: display.color,
+      secondsTracked: Math.round(secondsTracked),
+    };
+
+    this.primeCache.set(sourceId, { result, computedAt: now });
+    return result;
+  }
+
   clearHistory(sourceId: string) {
     this.historyBySource.delete(sourceId);
+    this.emotionLog.delete(sourceId);
+    this.primeCache.delete(sourceId);
   }
 
   clearAllHistory() {
     this.historyBySource.clear();
+    this.emotionLog.clear();
+    this.primeCache.clear();
   }
 }
