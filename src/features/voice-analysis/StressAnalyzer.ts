@@ -2,35 +2,64 @@ import type { StressMetrics } from '../../types/audio';
 
 const PITCH_HISTORY_SIZE = 100;
 const AMPLITUDE_HISTORY_SIZE = 100;
+const SILENCE_THRESHOLD_FRAMES = 30; // ~0.5s at 60fps
 
 export class StressAnalyzer {
   private pitchHistory: number[] = [];
   private amplitudeHistory: number[] = [];
   private pcmBuffer: Float32Array = new Float32Array(0);
   private sampleRate = 44100;
+  private silentFrames = 0;
 
   setSampleRate(rate: number) {
     this.sampleRate = rate;
   }
 
   analyze(frequencyData: Float32Array, timeDomainData: Float32Array): StressMetrics {
+    const rms = this.calculateRMS(timeDomainData);
     const f0 = this.calculateF0(timeDomainData);
-    const microtremorAmplitude = this.analyzeMicrotremors(timeDomainData);
+    const hasVoice = f0 > 0;
 
-    if (f0 > 0) {
+    let microtremorAmplitude: number;
+    let hnr: number;
+
+    if (hasVoice) {
+      this.silentFrames = 0;
+      microtremorAmplitude = this.analyzeMicrotremors(timeDomainData);
+      hnr = this.calculateHNR(timeDomainData);
+
       this.pitchHistory.push(f0);
       if (this.pitchHistory.length > PITCH_HISTORY_SIZE) this.pitchHistory.shift();
-    }
+      this.amplitudeHistory.push(rms);
+      if (this.amplitudeHistory.length > AMPLITUDE_HISTORY_SIZE) this.amplitudeHistory.shift();
+    } else {
+      this.silentFrames++;
+      microtremorAmplitude = 0;
+      hnr = 0;
 
-    const rms = this.calculateRMS(timeDomainData);
-    this.amplitudeHistory.push(rms);
-    if (this.amplitudeHistory.length > AMPLITUDE_HISTORY_SIZE) this.amplitudeHistory.shift();
+      // Drain history during silence so the score decays
+      if (this.silentFrames > SILENCE_THRESHOLD_FRAMES) {
+        for (let i = 0; i < 2; i++) {
+          if (this.pitchHistory.length > 0) this.pitchHistory.shift();
+          if (this.amplitudeHistory.length > 0) this.amplitudeHistory.shift();
+        }
+      }
+    }
 
     const f0Variance = this.calculateVariance(this.pitchHistory);
     const jitter = this.calculateJitter(this.pitchHistory);
     const shimmer = this.calculateShimmer(this.amplitudeHistory);
-    const hnr = this.calculateHNR(timeDomainData);
-    const stressScore = this.computeStressScore({ microtremorAmplitude, f0, f0Variance, jitter, shimmer, hnr, stressScore: 0 });
+
+    // For score: use neutral values for inverted metrics when no voice detected
+    const stressScore = this.computeStressScore({
+      microtremorAmplitude: hasVoice ? microtremorAmplitude : 0.01,
+      f0,
+      f0Variance,
+      jitter,
+      shimmer,
+      hnr: hasVoice ? hnr : 25,
+      stressScore: 0,
+    });
 
     return { microtremorAmplitude, f0, f0Variance, jitter, shimmer, hnr, stressScore };
   }
@@ -257,5 +286,6 @@ export class StressAnalyzer {
     this.pitchHistory = [];
     this.amplitudeHistory = [];
     this.pcmBuffer = new Float32Array(0);
+    this.silentFrames = 0;
   }
 }

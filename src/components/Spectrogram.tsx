@@ -8,7 +8,7 @@ interface SpectrogramProps {
 }
 
 function frequencyToColor(value: number): string {
-  // Map dB value (-100 to 0) to color gradient (dark blue → cyan → yellow → red)
+  // Map dB value (-100 to 0) to color gradient (dark blue -> cyan -> yellow -> red)
   const normalized = Math.max(0, Math.min(1, (value + 100) / 100));
 
   if (normalized < 0.25) {
@@ -94,7 +94,7 @@ export default function Spectrogram({
   return (
     <canvas
       ref={canvasRef}
-      style={{ width, height }}
+      style={{ width: '100%', height }}
       className="rounded-lg"
     />
   );

@@ -67,7 +67,7 @@ export default function Waveform({
   return (
     <canvas
       ref={canvasRef}
-      style={{ width, height }}
+      style={{ width: '100%', height }}
       className="rounded-lg"
     />
   );

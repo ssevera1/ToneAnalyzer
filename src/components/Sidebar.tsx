@@ -33,52 +33,83 @@ const navItems = [
 
 interface SidebarProps {
   onExport?: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export default function Sidebar({ onExport }: SidebarProps) {
+export default function Sidebar({ onExport, isOpen, onClose }: SidebarProps) {
   return (
-    <aside className="w-56 bg-dark-800 border-r border-dark-600 flex flex-col h-full">
-      <div className="p-4 border-b border-dark-600">
-        <h1 className="text-lg font-bold text-white tracking-tight">
-          <span className="text-accent-cyan">Tone</span>Analyzer
-        </h1>
-        <p className="text-xs text-dark-300 mt-0.5">CVSA & Emotion Detection</p>
-      </div>
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
 
-      <nav className="flex-1 p-3 space-y-1">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-accent-cyan/10 text-accent-cyan'
-                  : 'text-dark-200 hover:bg-dark-700 hover:text-white'
-              }`
-            }
-          >
-            {item.icon}
-            {item.label}
-          </NavLink>
-        ))}
-
-        {onExport && (
+      <aside
+        className={`
+          fixed inset-y-0 left-0 z-50 w-56 bg-dark-800 border-r border-dark-600
+          flex flex-col transform transition-transform duration-200
+          md:relative md:translate-x-0
+          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-dark-600">
+          <div>
+            <h1 className="text-lg font-bold text-white tracking-tight">
+              <span className="text-accent-cyan">Tone</span>Analyzer
+            </h1>
+            <p className="text-xs text-dark-300 mt-0.5">CVSA & Emotion Detection</p>
+          </div>
           <button
-            onClick={onExport}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-dark-200 hover:bg-dark-700 hover:text-white w-full text-left"
+            onClick={onClose}
+            className="p-1 text-dark-400 hover:text-white md:hidden"
+            aria-label="Close menu"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
-            Export Data
           </button>
-        )}
-      </nav>
+        </div>
 
-      <div className="p-4 border-t border-dark-600">
-        <div className="text-xs text-dark-400">v1.0.0</div>
-      </div>
-    </aside>
+        <nav className="flex-1 p-3 space-y-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              onClick={onClose}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive
+                    ? 'bg-accent-cyan/10 text-accent-cyan'
+                    : 'text-dark-200 hover:bg-dark-700 hover:text-white'
+                }`
+              }
+            >
+              {item.icon}
+              {item.label}
+            </NavLink>
+          ))}
+
+          {onExport && (
+            <button
+              onClick={() => { onExport(); onClose(); }}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-dark-200 hover:bg-dark-700 hover:text-white w-full text-left"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Export Data
+            </button>
+          )}
+        </nav>
+
+        <div className="p-4 border-t border-dark-600">
+          <div className="text-xs text-dark-400">v1.0.0</div>
+        </div>
+      </aside>
+    </>
   );
 }

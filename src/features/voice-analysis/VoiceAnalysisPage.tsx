@@ -36,28 +36,28 @@ export default function VoiceAnalysisPage() {
   };
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col md:flex-row h-full">
       {/* Main content */}
-      <div className="flex-1 p-6 overflow-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">Voice Stress Analysis</h2>
-          <div className="flex gap-2">
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 md:mb-6 pl-10 md:pl-0">
+          <h2 className="text-xl md:text-2xl font-bold">Voice Stress Analysis</h2>
+          <div className="flex gap-2 flex-wrap">
             {!isAnalyzing ? (
               <>
                 <button
                   onClick={() => startMic()}
-                  className="px-4 py-2 bg-accent-green text-dark-900 rounded-lg font-medium text-sm hover:bg-accent-green/90 transition-colors flex items-center gap-2"
+                  className="px-3 md:px-4 py-2 bg-accent-green text-dark-900 rounded-lg font-medium text-sm hover:bg-accent-green/90 transition-colors flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                   </svg>
-                  Start Microphone
+                  <span className="hidden sm:inline">Start</span> Mic
                 </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 bg-dark-700 text-white rounded-lg font-medium text-sm hover:bg-dark-600 transition-colors border border-dark-500"
+                  className="px-3 md:px-4 py-2 bg-dark-700 text-white rounded-lg font-medium text-sm hover:bg-dark-600 transition-colors border border-dark-500"
                 >
-                  Upload Audio File
+                  <span className="hidden sm:inline">Upload</span> File
                 </button>
                 <input
                   ref={fileInputRef}
@@ -70,7 +70,7 @@ export default function VoiceAnalysisPage() {
             ) : (
               <button
                 onClick={stop}
-                className="px-4 py-2 bg-accent-red text-white rounded-lg font-medium text-sm hover:bg-accent-red/90 transition-colors flex items-center gap-2"
+                className="px-3 md:px-4 py-2 bg-accent-red text-white rounded-lg font-medium text-sm hover:bg-accent-red/90 transition-colors flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <rect x="6" y="6" width="12" height="12" rx="1" />
@@ -82,25 +82,27 @@ export default function VoiceAnalysisPage() {
         </div>
 
         {/* Visualizations */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="bg-dark-800 rounded-xl p-4 border border-dark-600">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 md:mb-6">
+          <div className="bg-dark-800 rounded-xl p-3 md:p-4 border border-dark-600">
             <h3 className="text-xs text-dark-300 uppercase tracking-wider mb-3">Waveform</h3>
-            <Waveform data={timeDomainData} width={520} height={130} />
+            <Waveform data={timeDomainData} height={130} />
           </div>
-          <div className="bg-dark-800 rounded-xl p-4 border border-dark-600">
+          <div className="bg-dark-800 rounded-xl p-3 md:p-4 border border-dark-600">
             <h3 className="text-xs text-dark-300 uppercase tracking-wider mb-3">Spectrogram</h3>
-            <Spectrogram data={frequencyData} width={520} height={130} />
+            <Spectrogram data={frequencyData} height={130} />
           </div>
         </div>
 
         {/* Stress Gauge + Metrics */}
-        <div className="flex gap-6 items-start">
-          <div className="bg-dark-800 rounded-xl p-6 border border-dark-600 flex-shrink-0">
+        <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
+          <div className="bg-dark-800 rounded-xl p-4 md:p-6 border border-dark-600 flex-shrink-0 w-full md:w-auto">
             <h3 className="text-xs text-dark-300 uppercase tracking-wider mb-2 text-center">Stress Level</h3>
-            <StressGauge value={currentMetrics.stressScore} size={240} />
+            <div className="flex justify-center">
+              <StressGauge value={currentMetrics.stressScore} size={200} />
+            </div>
           </div>
 
-          <div className="flex-1 grid grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="flex-1 grid grid-cols-2 lg:grid-cols-3 gap-3 w-full">
             <MetricCard label="Fundamental Freq (F0)" value={currentMetrics.f0} unit="Hz" />
             <MetricCard label="F0 Variance" value={currentMetrics.f0Variance} unit="" />
             <MetricCard label="Jitter" value={currentMetrics.jitter} unit="%" />
@@ -123,10 +125,41 @@ export default function VoiceAnalysisPage() {
             </div>
           </div>
         )}
+
+        {/* Session history - inline on mobile */}
+        <div className="mt-4 md:hidden">
+          <h3 className="text-sm font-semibold text-dark-200 uppercase tracking-wider mb-3">
+            Session History
+          </h3>
+          {sessions.length === 0 ? (
+            <p className="text-sm text-dark-400">No sessions yet</p>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map((session, i) => (
+                <div
+                  key={i}
+                  className="bg-dark-700 rounded-lg p-3 border border-dark-600"
+                >
+                  <div className="text-sm font-medium text-white truncate">{session.name}</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-dark-400">
+                      {session.readings.length} readings
+                    </span>
+                    {session.averageStress !== undefined && (
+                      <span className="text-xs text-accent-cyan">
+                        avg: {session.averageStress.toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Session history sidebar */}
-      <div className="w-64 bg-dark-800 border-l border-dark-600 p-4 overflow-auto">
+      {/* Session history sidebar - desktop only */}
+      <div className="hidden md:block w-64 bg-dark-800 border-l border-dark-600 p-4 overflow-auto">
         <h3 className="text-sm font-semibold text-dark-200 uppercase tracking-wider mb-3">
           Session History
         </h3>

@@ -65,12 +65,12 @@ export default function EmotionMonitorPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-dark-800 border-b border-dark-600">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold">Video Monitor</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2.5 bg-dark-800 border-b border-dark-600">
+        <div className="flex items-center gap-2 md:gap-3 pl-10 md:pl-0">
+          <h2 className="text-base md:text-lg font-semibold">Video Monitor</h2>
 
           {/* Grid layout selector */}
-          <div className="flex items-center gap-1 ml-4">
+          <div className="flex items-center gap-1 ml-2 md:ml-4">
             {GRID_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
@@ -152,8 +152,8 @@ export default function EmotionMonitorPage() {
 
       {/* Add Source Dialog */}
       {showAddDialog && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-dark-800 rounded-xl border border-dark-600 p-6 w-96 shadow-2xl">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-800 rounded-xl border border-dark-600 p-4 md:p-6 w-full max-w-sm md:max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Add Video Source</h3>
               <button
