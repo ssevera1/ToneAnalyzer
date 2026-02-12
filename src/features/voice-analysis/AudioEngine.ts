@@ -12,7 +12,7 @@ export class AudioEngine {
   private _isCapturing = false;
   private _isFileLoaded = false;
 
-  readonly fftSize = 4096;
+  readonly fftSize = 8192;
 
   get isCapturing() { return this._isCapturing; }
   get isFileLoaded() { return this._isFileLoaded; }

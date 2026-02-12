@@ -45,7 +45,7 @@ export class StressAnalyzer {
    * Stress suppresses muscle microtremors, so diminished amplitude = higher stress.
    */
   analyzeMicrotremors(timeDomainData: Float32Array): number {
-    if (timeDomainData.length < 256) return 0;
+    if (timeDomainData.length < 256) return 0.01;
 
     // Compute the envelope of the signal
     const envelope = new Float32Array(timeDomainData.length);
@@ -64,6 +64,10 @@ export class StressAnalyzer {
     // Measure energy in the 8-14 Hz modulation band via autocorrelation of envelope
     const minLag = Math.floor(this.sampleRate / 14); // 14 Hz
     const maxLag = Math.floor(this.sampleRate / 8);  // 8 Hz
+
+    // Buffer too short for the lag range — return neutral (no stress) value
+    if (minLag > smoothed.length / 2) return 0.01;
+
     let maxCorr = 0;
 
     for (let lag = minLag; lag <= Math.min(maxLag, smoothed.length / 2); lag++) {

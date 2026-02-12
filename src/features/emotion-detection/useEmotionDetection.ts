@@ -48,17 +48,18 @@ export function useEmotionDetection() {
     });
 
     manager.setOnChange((sources) => {
-      // Sync sources to store
-      const currentIds = new Set(store.sources.map((s) => s.id));
+      // Sync sources to store — read latest state to avoid stale closure
+      const { sources: currentSources, addSource, updateSource, removeSource } = useEmotionStore.getState();
+      const currentIds = new Set(currentSources.map((s) => s.id));
       const newIds = new Set(sources.map((s) => s.id));
 
       sources.forEach((s) => {
-        if (!currentIds.has(s.id)) store.addSource(s);
-        else store.updateSource(s.id, s);
+        if (!currentIds.has(s.id)) addSource(s);
+        else updateSource(s.id, s);
       });
 
-      store.sources.forEach((s) => {
-        if (!newIds.has(s.id)) store.removeSource(s.id);
+      currentSources.forEach((s) => {
+        if (!newIds.has(s.id)) removeSource(s.id);
       });
     });
 
