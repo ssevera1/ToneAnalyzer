@@ -64,7 +64,7 @@ export default function StressGauge({ value, size = 200, label }: StressGaugePro
           strokeLinecap="round"
           style={{
             filter: `drop-shadow(0 0 6px ${color}80)`,
-            transition: 'stroke 0.3s, d 0.1s',
+            transition: 'stroke 0.3s',
           }}
         />
         {/* Value text */}
