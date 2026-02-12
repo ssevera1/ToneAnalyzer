@@ -242,7 +242,10 @@ sudo cp -r dist/* /usr/share/nginx/html/
 sudo tee /etc/nginx/conf.d/toneanalyzer.conf > /dev/null <<'NGINX'
 server {
     listen 80;
-    server_name your-domain.com;  # use _ if you only have an IP address
+    # If you have a domain:   server_name your-domain.com;
+    # If you only have an IP: server_name _;
+    # Example with IP:        server_name 54.210.123.45;
+    server_name _;
     root /usr/share/nginx/html;
     index index.html;
 
