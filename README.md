@@ -221,6 +221,10 @@ Or connect your GitHub repo directly in the [AWS Amplify Console](https://consol
 
 ```bash
 # 1. Launch an EC2 instance (Amazon Linux 2 / Ubuntu)
+#    In the EC2 Security Group, open inbound ports:
+#      - 22  (SSH)
+#      - 80  (HTTP)
+#      - 443 (HTTPS — required for mic/camera access)
 # 2. SSH into the instance and install dependencies
 sudo yum install -y nginx       # Amazon Linux
 # or
