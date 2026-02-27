@@ -298,53 +298,6 @@ export function exportEmotionPDF(session: EmotionSession): jsPDF {
       y += 6;
     });
 
-    y += 6;
-
-    // Data table with deceit column
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Readings', margin, y);
-    y += 8;
-
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    const headers = ['Time', 'Face', 'Emotion', 'Confidence', 'Deceit'];
-    const colWidths = [30, 30, 28, 25, 20];
-    let x = margin;
-    headers.forEach((h, i) => {
-      doc.text(h, x, y);
-      x += colWidths[i];
-    });
-    y += 5;
-
-    doc.setTextColor(60, 60, 60);
-    const maxRows = Math.min(session.readings.length, 40);
-    for (let i = 0; i < maxRows; i++) {
-      if (y > 270) {
-        doc.addPage();
-        y = margin;
-      }
-      const r = session.readings[i];
-      x = margin;
-      const row = [
-        new Date(r.timestamp).toLocaleTimeString(),
-        r.faceId.replace(/.*-face-/, 'Face '),
-        r.dominantEmotion,
-        (r.confidence * 100).toFixed(0) + '%',
-        deceitValues[i].toFixed(0) + '%',
-      ];
-      row.forEach((cell, j) => {
-        doc.text(cell, x, y);
-        x += colWidths[j];
-      });
-      y += 4.5;
-    }
-
-    if (session.readings.length > maxRows) {
-      y += 4;
-      doc.setTextColor(100, 100, 100);
-      doc.text(`... and ${session.readings.length - maxRows} more readings`, margin, y);
-    }
   }
 
   // Transcript section

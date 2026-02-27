@@ -36,9 +36,16 @@ flowchart TB
         emotionResult["EmotionReading\n{emotions, labels,\nVAD, primeEmotion}"]
     end
 
+    subgraph TranscriptionPipeline ["Voice Transcription (Emotion Monitor)"]
+        direction TB
+        speechApi["Web Speech API\n(SpeechRecognition)"]
+        monitorHook["useMonitorTranscription\n(maps deceit scores)"]
+        transcriptSeg["TranscriptSegment\n{text, deceit, stress}"]
+    end
+
     subgraph State ["State Management (Zustand)"]
-        voiceStore["useVoiceStore\n• currentSession\n• readings[]\n• freq/time data"]
-        emotionStore["useEmotionStore\n• sources[]\n• readings Map\n• session"]
+        voiceStore["useVoiceStore\n• currentSession\n• readings[]\n• transcript[]\n• freq/time data"]
+        emotionStore["useEmotionStore\n• sources[]\n• readings Map\n• session\n• transcript[]"]
         appStore["useAppStore\n• settings\n• thresholds"]
     end
 
@@ -50,6 +57,7 @@ flowchart TB
         videoPanels["Video Panels\n(Canvas overlay)"]
         badges["Emotion Badges\n(React components)"]
         exprLabels["Expression Labels\n(color-coded bars)"]
+        transcriptPanel["TranscriptPanel\n(live speech text + deceit)"]
     end
 
     subgraph Persistence ["Persistence & Export"]
@@ -72,8 +80,13 @@ flowchart TB
     rtsp -->|"ws://127.0.0.1:9999\n(Electron only)"| videoEl
     videoEl --> tfjs --> faceDetect --> exprNet --> exprAnalyze --> emotionResult
 
+    mic -->|"concurrent with audio pipeline"| speechApi
+    speechApi --> monitorHook
+    monitorHook -->|"max facial deceit"| transcriptSeg
+
     metrics --> voiceStore
     emotionResult --> emotionStore
+    transcriptSeg --> emotionStore
 
     voiceStore --> gauge
     voiceStore --> waveform
@@ -82,6 +95,7 @@ flowchart TB
     emotionStore --> videoPanels
     emotionStore --> badges
     emotionStore --> exprLabels
+    emotionStore --> transcriptPanel
 
     voiceStore --> indexeddb
     emotionStore --> indexeddb
@@ -209,11 +223,24 @@ erDiagram
         number microtremorFrequency "Hz"
     }
 
+    VOICE_TRANSCRIPT_SEGMENTS {
+        string id PK "seg-N"
+        string sessionId FK "→ VOICE_SESSIONS.id"
+        string text "Transcribed speech"
+        number startTime "Unix timestamp ms"
+        number endTime "Unix timestamp ms"
+        number averageStress "0-100"
+        number averageDeceit "0-100"
+        number peakStress "0-100"
+        number peakDeceit "0-100"
+    }
+
     EMOTION_SESSIONS {
         string id PK "UUID"
         string name "User-provided label"
         number startTime "Unix timestamp ms"
         number endTime "Unix timestamp ms"
+        number sourceCount "Number of video sources"
     }
 
     EMOTION_READINGS {
@@ -227,6 +254,20 @@ erDiagram
         string boundingBox "JSON: x, y, width, height"
     }
 
+    EMOTION_TRANSCRIPT_SEGMENTS {
+        string id PK "emo-seg-N"
+        string sessionId FK "→ EMOTION_SESSIONS.id"
+        string text "Transcribed speech"
+        number startTime "Unix timestamp ms"
+        number endTime "Unix timestamp ms"
+        number averageStress "Always 0 (no acoustic analysis)"
+        number averageDeceit "0-100 (max facial deceit)"
+        number peakStress "Always 0"
+        number peakDeceit "0-100"
+    }
+
     VOICE_SESSIONS ||--o{ STRESS_READINGS : contains
+    VOICE_SESSIONS ||--o{ VOICE_TRANSCRIPT_SEGMENTS : contains
     EMOTION_SESSIONS ||--o{ EMOTION_READINGS : contains
+    EMOTION_SESSIONS ||--o{ EMOTION_TRANSCRIPT_SEGMENTS : contains
 ```

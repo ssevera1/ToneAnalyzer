@@ -24,6 +24,7 @@ Cross-platform voice stress analysis (CVSA) and multi-video emotion detection ap
 - Bounding box overlays with emotion badges on each detected face
 - Configurable grid layouts: 1, 2×2, 2×3, 3×3, 3×4
 - Round-robin processing across feeds for GPU efficiency
+- Live voice transcription during monitoring via Web Speech API with per-segment deceit scoring
 
 ### Derived Expression Labels (50+)
 Each video panel displays derived behavioral labels at the bottom, computed from base emotion combinations and temporal patterns:
@@ -41,8 +42,10 @@ Each video panel displays derived behavioral labels at the bottom, computed from
 Labels are color-coded by category and show confidence percentages. Deception indicators are highlighted with red borders.
 
 ### Data Export
-- CSV export with full metric columns for voice or emotion sessions
-- PDF report generation with summary statistics and data tables
+- Export dialog defaults to PDF format
+- Voice PDF reports: summary statistics and full transcript with per-segment stress/deceit scores (no raw readings table)
+- Emotion PDF reports: emotion distribution, deceit analysis, and transcript (if recorded)
+- CSV export with full metric columns and transcript sections for voice and emotion sessions
 - Session persistence via IndexedDB (Dexie.js)
 
 ### Cross-Platform
@@ -61,6 +64,7 @@ Labels are color-coded by category and show confidence percentages. Deception in
 | Face/Emotion | TensorFlow.js, @vladmandic/face-api |
 | Charts | Recharts |
 | Storage | IndexedDB via Dexie.js |
+| Speech-to-Text | Web Speech API (SpeechRecognition) |
 | Export | jsPDF, PapaParse |
 | Desktop | Electron |
 | Mobile | Capacitor |
@@ -111,11 +115,14 @@ src/
 │   ├── VideoGrid.tsx    # Grid of 1-12 VideoPanel components
 │   ├── EmotionBadge.tsx # Emotion label pill
 │   ├── ExpressionLabels.tsx  # Derived expression label bar
-│   └── ExportDialog.tsx # CSV/PDF export modal
+│   ├── TranscriptPanel.tsx   # Live transcript with per-segment scores
+│   └── ExportDialog.tsx # CSV/PDF export modal (defaults to PDF)
 ├── features/
 │   ├── voice-analysis/
 │   │   ├── AudioEngine.ts       # Web Audio API capture + FFT
 │   │   ├── StressAnalyzer.ts    # CVSA algorithms
+│   │   ├── TranscriptionService.ts  # Web Speech API wrapper
+│   │   ├── useTranscription.ts  # Voice transcription hook
 │   │   ├── VoiceAnalysisPage.tsx
 │   │   └── useVoiceAnalysis.ts
 │   ├── emotion-detection/
@@ -123,7 +130,8 @@ src/
 │   │   ├── ExpressionAnalyzer.ts # 50+ derived expression rules
 │   │   ├── VideoSourceManager.ts
 │   │   ├── EmotionMonitorPage.tsx
-│   │   └── useEmotionDetection.ts
+│   │   ├── useEmotionDetection.ts
+│   │   └── useMonitorTranscription.ts  # Live transcription for monitor
 │   └── settings/
 │       └── SettingsPage.tsx
 ├── services/

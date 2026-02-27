@@ -62,6 +62,19 @@ classDiagram
         +metrics: StressMetrics
     }
 
+    class TranscriptSegment {
+        <<interface>>
+        +id: string
+        +text: string
+        +startTime: number
+        +endTime: number
+        +isFinal: boolean
+        +averageStress: number
+        +averageDeceit: number
+        +peakStress: number
+        +peakDeceit: number
+    }
+
     class VoiceSession {
         <<interface>>
         +id: string
@@ -69,6 +82,7 @@ classDiagram
         +startTime: number
         +endTime?: number
         +readings: StressReading[]
+        +transcript: TranscriptSegment[]
     }
 
     class useVoiceAnalysis {
@@ -105,6 +119,7 @@ classDiagram
     useVoiceAnalysis --> useVoiceStore : updates
     useVoiceStore --> VoiceSession : manages
     VoiceSession *-- StressReading : contains
+    VoiceSession *-- TranscriptSegment : contains
     StressReading *-- StressMetrics : contains
 ```
 
@@ -234,16 +249,50 @@ classDiagram
         surprised
     }
 
+    class EmotionSession {
+        <<interface>>
+        +id: string
+        +name: string
+        +startTime: number
+        +endTime?: number
+        +readings: EmotionReading[]
+        +sourceCount: number
+        +transcript?: TranscriptSegment[]
+    }
+
+    class TranscriptionService {
+        +isSupported: boolean
+        -recognition: SpeechRecognition
+        -listeners: TranscriptionListener[]
+        -running: boolean
+        -shouldRestart: boolean
+        +on(listener): unsubscribe
+        +start(): void
+        +stop(): void
+        +destroy(): void
+    }
+
     class useEmotionDetection {
         <<hook>>
         -emotionEngine: EmotionEngine
         -expressionAnalyzer: ExpressionAnalyzer
         -videoSourceManager: VideoSourceManager
         +isMonitoring: boolean
+        +deceitScores: Map~string, number~
         +addSource(type, config): Promise~void~
         +removeSource(id): void
         +startMonitoring(): Promise~void~
         +stopMonitoring(): void
+    }
+
+    class useMonitorTranscription {
+        <<hook>>
+        -serviceRef: TranscriptionService
+        -deceitScoresRef: Map~string, number~
+        +startTranscription(): void
+        +stopTranscription(): void
+        +interimText: string
+        +isSupported: boolean
     }
 
     EmotionEngine ..> EmotionReading : produces
@@ -253,6 +302,10 @@ classDiagram
     useEmotionDetection --> EmotionEngine : owns
     useEmotionDetection --> ExpressionAnalyzer : owns
     useEmotionDetection --> VideoSourceManager : owns
+    useMonitorTranscription --> TranscriptionService : wraps
+    useMonitorTranscription ..> EmotionSession : adds transcript segments
+    EmotionSession *-- EmotionReading : contains
+    EmotionSession *-- TranscriptSegment : contains (optional)
     EmotionReading --> Emotion : references
 ```
 
