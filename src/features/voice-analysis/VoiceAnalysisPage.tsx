@@ -1,15 +1,20 @@
 import { useRef } from 'react';
 import { useVoiceAnalysis } from './useVoiceAnalysis';
+import { useTranscription } from './useTranscription';
 import Waveform from '../../components/Waveform';
 import Spectrogram from '../../components/Spectrogram';
 import StressGauge from '../../components/StressGauge';
+import DeceitGauge from '../../components/DeceitGauge';
+import TranscriptPanel from '../../components/TranscriptPanel';
+import SessionSummaryCard from '../../components/SessionSummaryCard';
 
 function MetricCard({ label, value, unit }: { label: string; value: number; unit: string }) {
+  const display = Number.isFinite(value) ? value.toFixed(1) : '\u2014';
   return (
     <div className="bg-dark-800 rounded-lg p-3 border border-dark-600">
       <div className="text-xs text-dark-300 uppercase tracking-wider">{label}</div>
       <div className="text-lg font-semibold text-white mt-1">
-        {typeof value === 'number' ? value.toFixed(1) : '—'}
+        {display}
         <span className="text-xs text-dark-400 ml-1">{unit}</span>
       </div>
     </div>
@@ -30,6 +35,23 @@ export default function VoiceAnalysisPage() {
     timeDomainData,
   } = useVoiceAnalysis();
 
+  const {
+    startTranscription,
+    stopTranscription,
+    interimText,
+    isSupported: transcriptionSupported,
+  } = useTranscription();
+
+  const handleStartMic = async () => {
+    await startMic();
+    startTranscription();
+  };
+
+  const handleStop = async () => {
+    stopTranscription();
+    await stop();
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) loadFile(file);
@@ -45,7 +67,7 @@ export default function VoiceAnalysisPage() {
             {!isAnalyzing ? (
               <>
                 <button
-                  onClick={() => startMic()}
+                  onClick={handleStartMic}
                   className="px-3 md:px-4 py-2 bg-accent-green text-dark-900 rounded-lg font-medium text-sm hover:bg-accent-green/90 transition-colors flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -69,7 +91,7 @@ export default function VoiceAnalysisPage() {
               </>
             ) : (
               <button
-                onClick={stop}
+                onClick={handleStop}
                 className="px-3 md:px-4 py-2 bg-accent-red text-white rounded-lg font-medium text-sm hover:bg-accent-red/90 transition-colors flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -93,12 +115,20 @@ export default function VoiceAnalysisPage() {
           </div>
         </div>
 
-        {/* Stress Gauge + Metrics */}
+        {/* Gauges + Metrics */}
         <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
-          <div className="bg-dark-800 rounded-xl p-4 md:p-6 border border-dark-600 flex-shrink-0 w-full md:w-auto">
-            <h3 className="text-xs text-dark-300 uppercase tracking-wider mb-2 text-center">Stress Level</h3>
-            <div className="flex justify-center">
-              <StressGauge value={currentMetrics.stressScore} size={200} />
+          <div className="flex flex-row gap-4 flex-shrink-0">
+            <div className="bg-dark-800 rounded-xl p-4 md:p-6 border border-dark-600">
+              <h3 className="text-xs text-dark-300 uppercase tracking-wider mb-2 text-center">Stress Level</h3>
+              <div className="flex justify-center">
+                <StressGauge value={currentMetrics.stressScore} size={200} />
+              </div>
+            </div>
+            <div className="bg-dark-800 rounded-xl p-4 md:p-6 border border-dark-600">
+              <h3 className="text-xs text-dark-300 uppercase tracking-wider mb-2 text-center">Deceit Level</h3>
+              <div className="flex justify-center">
+                <DeceitGauge value={currentMetrics.deceitScore} size={200} />
+              </div>
             </div>
           </div>
 
@@ -108,9 +138,26 @@ export default function VoiceAnalysisPage() {
             <MetricCard label="Jitter" value={currentMetrics.jitter} unit="%" />
             <MetricCard label="Shimmer" value={currentMetrics.shimmer} unit="%" />
             <MetricCard label="HNR" value={currentMetrics.hnr} unit="dB" />
-            <MetricCard label="Microtremor" value={currentMetrics.microtremorAmplitude * 10000} unit="×10⁻⁴" />
+            <MetricCard label="Microtremor" value={currentMetrics.microtremorAmplitude * 100} unit="%" />
+            <MetricCard label="Hesitation" value={currentMetrics.hesitationRatio * 100} unit="%" />
           </div>
         </div>
+
+        {/* Transcript */}
+        <div className="mt-4">
+          <TranscriptPanel
+            segments={currentSession?.transcript ?? []}
+            interimText={interimText}
+            isSupported={transcriptionSupported}
+          />
+        </div>
+
+        {/* Session Summary */}
+        {currentSession && currentSession.readings.length > 0 && (
+          <div className="mt-4">
+            <SessionSummaryCard session={currentSession} />
+          </div>
+        )}
 
         {/* Session info */}
         {currentSession && (
@@ -147,7 +194,12 @@ export default function VoiceAnalysisPage() {
                     </span>
                     {session.averageStress !== undefined && (
                       <span className="text-xs text-accent-cyan">
-                        avg: {session.averageStress.toFixed(0)}%
+                        stress: {session.averageStress.toFixed(0)}%
+                      </span>
+                    )}
+                    {session.averageDeceit !== undefined && (
+                      <span className="text-xs text-orange-400">
+                        deceit: {session.averageDeceit.toFixed(0)}%
                       </span>
                     )}
                   </div>
@@ -182,10 +234,17 @@ export default function VoiceAnalysisPage() {
                   </span>
                   {session.averageStress !== undefined && (
                     <span className="text-xs text-accent-cyan">
-                      avg: {session.averageStress.toFixed(0)}%
+                      stress: {session.averageStress.toFixed(0)}%
                     </span>
                   )}
                 </div>
+                {session.averageDeceit !== undefined && (
+                  <div className="mt-1">
+                    <span className="text-xs text-orange-400">
+                      deceit: {session.averageDeceit.toFixed(0)}%
+                    </span>
+                  </div>
+                )}
               </div>
             ))}
           </div>

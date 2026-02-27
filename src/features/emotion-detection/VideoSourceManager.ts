@@ -49,9 +49,9 @@ export class VideoSourceManager {
       source.status = 'active';
       this.notifyChange();
     } catch (error) {
-      source.status = 'error';
+      this.sources.delete(id);
       this.notifyChange();
-      console.error('Failed to access webcam:', error);
+      throw new Error(`Failed to access webcam: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     return source;
@@ -139,8 +139,9 @@ export class VideoSourceManager {
       source.status = 'active';
       this.notifyChange();
     } catch (error) {
-      source.status = 'error';
+      this.sources.delete(id);
       this.notifyChange();
+      throw new Error(`Screen capture failed: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     return source;
@@ -179,7 +180,8 @@ export class VideoSourceManager {
   }
 
   removeAll() {
-    for (const id of this.sources.keys()) {
+    const ids = Array.from(this.sources.keys());
+    for (const id of ids) {
       this.removeSource(id);
     }
   }

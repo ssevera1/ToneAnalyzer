@@ -1,11 +1,24 @@
 export interface StressReading {
   timestamp: number;
   stressLevel: number;
+  deceitLevel: number;
   frequency: number;
   microtremorAmplitude: number;
   jitter: number;
   shimmer: number;
   hnr: number;
+}
+
+export interface TranscriptSegment {
+  id: string;
+  text: string;
+  startTime: number;
+  endTime: number;
+  isFinal: boolean;
+  averageStress: number;
+  averageDeceit: number;
+  peakStress: number;
+  peakDeceit: number;
 }
 
 export interface VoiceSession {
@@ -14,8 +27,10 @@ export interface VoiceSession {
   startTime: number;
   endTime?: number;
   readings: StressReading[];
+  transcript: TranscriptSegment[];
   audioBlob?: Blob;
   averageStress?: number;
+  averageDeceit?: number;
 }
 
 export interface AudioEngineState {
@@ -33,4 +48,6 @@ export interface StressMetrics {
   shimmer: number;
   hnr: number;
   stressScore: number;
+  deceitScore: number;
+  hesitationRatio: number;
 }

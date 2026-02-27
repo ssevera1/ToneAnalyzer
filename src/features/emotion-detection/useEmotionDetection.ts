@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useEmotionStore } from '../../stores/emotionStore';
 import { EmotionEngine } from './EmotionEngine';
 import { VideoSourceManager } from './VideoSourceManager';
-import { ExpressionAnalyzer, type ExpressionLabel, type PrimeEmotion } from './ExpressionAnalyzer';
+import { ExpressionAnalyzer, type ExpressionLabel, type PrimeEmotion, type ExpressionTotals } from './ExpressionAnalyzer';
 import type { VideoSourceType } from '../../types/video';
 
 export function useEmotionDetection() {
@@ -15,6 +15,8 @@ export function useEmotionDetection() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [expressionLabels, setExpressionLabels] = useState<Map<string, ExpressionLabel[]>>(new Map());
   const [primeEmotions, setPrimeEmotions] = useState<Map<string, PrimeEmotion>>(new Map());
+  const [expressionTotals, setExpressionTotals] = useState<Map<string, ExpressionTotals>>(new Map());
+  const [deceitScores, setDeceitScores] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
     const engine = new EmotionEngine();
@@ -27,6 +29,7 @@ export function useEmotionDetection() {
 
     engine.setOnDetection((sourceId, readings) => {
       store.updateReadings(sourceId, readings);
+      useEmotionStore.getState().addReadings(readings);
 
       // Derive expression labels from emotion readings
       const labels = exprAnalyzer.analyze(sourceId, readings);
@@ -36,12 +39,30 @@ export function useEmotionDetection() {
         return next;
       });
 
+      // Update visual deceit score
+      const deceit = exprAnalyzer.computeDeceitScore(sourceId, labels);
+      setDeceitScores((prev) => {
+        const next = new Map(prev);
+        next.set(sourceId, deceit);
+        return next;
+      });
+
       // Update prime emotion (internally cached, recalculates every 15s)
       const prime = exprAnalyzer.getPrimeEmotion(sourceId);
       if (prime) {
         setPrimeEmotions((prev) => {
           const next = new Map(prev);
           next.set(sourceId, prime);
+          return next;
+        });
+      }
+
+      // Update running expression totals
+      const totals = exprAnalyzer.getTotals(sourceId);
+      if (totals) {
+        setExpressionTotals((prev) => {
+          const next = new Map(prev);
+          next.set(sourceId, { ...totals, counts: { ...totals.counts }, confidenceSums: { ...totals.confidenceSums } });
           return next;
         });
       }
@@ -121,6 +142,16 @@ export function useEmotionDetection() {
       next.delete(id);
       return next;
     });
+    setExpressionTotals((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+    setDeceitScores((prev) => {
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
   }, [store]);
 
   const togglePause = useCallback((id: string) => {
@@ -155,13 +186,20 @@ export function useEmotionDetection() {
     engineRef.current?.stopDetectionLoop();
     analyzerRef.current?.clearAllHistory();
     store.stopSession();
+    // Clear derived React state so stale labels/totals don't linger after stop
+    setExpressionLabels(new Map());
+    setPrimeEmotions(new Map());
+    setExpressionTotals(new Map());
+    setDeceitScores(new Map());
   }, [store]);
 
   return {
     sources: store.sources,
     readings: store.latestReadings,
     expressionLabels,
+    expressionTotals,
     primeEmotions,
+    deceitScores,
     gridLayout: store.gridLayout,
     isMonitoring: store.isMonitoring,
     isEngineReady,
@@ -175,5 +213,6 @@ export function useEmotionDetection() {
     startMonitoring,
     stopMonitoring,
     setGridLayout: store.setGridLayout,
+    engine: engineRef.current,
   };
 }

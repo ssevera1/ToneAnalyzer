@@ -16,6 +16,7 @@ interface EmotionState {
   updateSource: (id: string, updates: Partial<VideoSource>) => void;
   setGridLayout: (layout: GridLayout) => void;
   updateReadings: (sourceId: string, readings: EmotionReading[]) => void;
+  addReadings: (readings: EmotionReading[]) => void;
   startSession: (name?: string) => void;
   stopSession: () => void;
 }
@@ -50,6 +51,17 @@ export const useEmotionStore = create<EmotionState>((set) => ({
       const newMap = new Map(state.latestReadings);
       newMap.set(sourceId, readings);
       return { latestReadings: newMap };
+    }),
+
+  addReadings: (readings) =>
+    set((state) => {
+      if (!state.currentSession) return {};
+      const accumulated = state.currentSession.readings;
+      // Cap at 18000 readings to prevent unbounded growth
+      const combined = accumulated.length + readings.length > 18000
+        ? [...accumulated, ...readings].slice(-18000)
+        : [...accumulated, ...readings];
+      return { currentSession: { ...state.currentSession, readings: combined } };
     }),
 
   startSession: (name?: string) =>

@@ -1,55 +1,46 @@
-interface StressGaugeProps {
+interface DeceitGaugeProps {
   value: number; // 0-100
   size?: number;
-  label?: string;
 }
 
-function getStressColor(value: number): string {
-  if (value < 30) return '#22c55e'; // green
-  if (value < 60) return '#eab308'; // yellow
-  if (value < 80) return '#f97316'; // orange
+function getDeceitColor(value: number): string {
+  if (value < 25) return '#22c55e'; // green
+  if (value < 50) return '#eab308'; // yellow
+  if (value < 75) return '#f97316'; // orange
   return '#ef4444'; // red
 }
 
-function getStressLabel(value: number): string {
-  if (value < 20) return 'Relaxed';
-  if (value < 40) return 'Normal';
-  if (value < 60) return 'Mild Stress';
-  if (value < 80) return 'Moderate Stress';
-  return 'High Stress';
+function getDeceitLabel(value: number): string {
+  if (value < 15) return 'Low';
+  if (value < 30) return 'Mild';
+  if (value < 50) return 'Moderate';
+  if (value < 75) return 'Elevated';
+  return 'High';
 }
 
-export default function StressGauge({ value: rawValue, size = 200, label }: StressGaugeProps) {
-  // Sanitize: NaN, Infinity, negative, and >100 all produce broken SVG arcs.
+export default function DeceitGauge({ value: rawValue, size = 200 }: DeceitGaugeProps) {
   const value = Number.isFinite(rawValue) ? Math.max(0, Math.min(100, rawValue)) : 0;
   const radius = (size - 20) / 2;
   const center = size / 2;
   const strokeWidth = 12;
-  const circumference = Math.PI * radius; // half circle
-  const progress = (value / 100) * circumference;
-  const color = getStressColor(value);
+  const color = getDeceitColor(value);
 
-  // Arc path (semicircle, bottom half)
   const startAngle = Math.PI;
-  const endAngle = 2 * Math.PI;
   const startX = center + radius * Math.cos(startAngle);
   const startY = center + radius * Math.sin(startAngle);
-  const endX = center + radius * Math.cos(endAngle);
-  const endY = center + radius * Math.sin(endAngle);
+  const endX = center + radius * Math.cos(2 * Math.PI);
+  const endY = center + radius * Math.sin(2 * Math.PI);
 
   const backgroundArc = `M ${startX} ${startY} A ${radius} ${radius} 0 0 1 ${endX} ${endY}`;
 
-  // Progress arc
   const progressAngle = startAngle + (value / 100) * Math.PI;
   const progressX = center + radius * Math.cos(progressAngle);
   const progressY = center + radius * Math.sin(progressAngle);
-  const largeArc = 0; // semicircle arc never exceeds 180° of the full circle
-  const progressArc = `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${progressX} ${progressY}`;
+  const progressArc = `M ${startX} ${startY} A ${radius} ${radius} 0 0 1 ${progressX} ${progressY}`;
 
   return (
     <div className="flex flex-col items-center">
       <svg width={size} height={size * 0.65} viewBox={`0 0 ${size} ${size * 0.65}`}>
-        {/* Background arc */}
         <path
           d={backgroundArc}
           fill="none"
@@ -57,7 +48,6 @@ export default function StressGauge({ value: rawValue, size = 200, label }: Stre
           strokeWidth={strokeWidth}
           strokeLinecap="round"
         />
-        {/* Progress arc */}
         <path
           d={progressArc}
           fill="none"
@@ -69,7 +59,6 @@ export default function StressGauge({ value: rawValue, size = 200, label }: Stre
             transition: 'stroke 0.3s',
           }}
         />
-        {/* Value text */}
         <text
           x={center}
           y={center - 5}
@@ -80,7 +69,6 @@ export default function StressGauge({ value: rawValue, size = 200, label }: Stre
         >
           {Math.round(value)}
         </text>
-        {/* Label */}
         <text
           x={center}
           y={center + size * 0.1}
@@ -89,7 +77,7 @@ export default function StressGauge({ value: rawValue, size = 200, label }: Stre
           fontSize={size * 0.07}
           fontWeight="600"
         >
-          {label || getStressLabel(value)}
+          {getDeceitLabel(value)}
         </text>
       </svg>
     </div>

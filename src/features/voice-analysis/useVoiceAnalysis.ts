@@ -19,24 +19,27 @@ export function useVoiceAnalysis() {
     engine.on('data', (data) => {
       if (data.type === 'analysis') {
         const metrics = analyzer.analyze(data.frequencyData, data.timeDomainData);
-        store.updateMetrics(metrics);
-        store.updateFrequencyData(data.frequencyData);
-        store.updateTimeDomainData(data.timeDomainData);
+        // Use getState() to avoid stale closure — the store object captured at
+        // mount time holds the *initial* state values, so store.currentSession
+        // is always null. getState() reads the live Zustand state.
+        const state = useVoiceStore.getState();
+        state.updateMetrics(metrics);
+        state.updateFrequencyData(data.frequencyData);
+        state.updateTimeDomainData(data.timeDomainData);
 
-        if (store.currentSession) {
+        if (state.currentSession) {
           const reading: StressReading = {
             timestamp: Date.now(),
             stressLevel: metrics.stressScore,
+            deceitLevel: metrics.deceitScore,
             frequency: metrics.f0,
             microtremorAmplitude: metrics.microtremorAmplitude,
             jitter: metrics.jitter,
             shimmer: metrics.shimmer,
             hnr: metrics.hnr,
           };
-          store.addReading(reading);
+          state.addReading(reading);
         }
-      } else if (data.type === 'pcm') {
-        analyzer.analyzePCM(data.samples, data.sampleRate);
       }
     });
 
@@ -49,12 +52,14 @@ export function useVoiceAnalysis() {
   const startMic = useCallback(async (deviceId?: string) => {
     if (!engineRef.current) return;
     await engineRef.current.startCapture(deviceId);
+    analyzerRef.current?.setSampleRate(engineRef.current.sampleRate);
     store.startSession();
   }, [store]);
 
   const loadFile = useCallback(async (file: File) => {
     if (!engineRef.current) return;
     await engineRef.current.loadFile(file);
+    analyzerRef.current?.setSampleRate(engineRef.current.sampleRate);
     store.startSession(file.name);
   }, [store]);
 

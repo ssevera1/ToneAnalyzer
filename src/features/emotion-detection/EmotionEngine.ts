@@ -1,4 +1,5 @@
 import type { EmotionReading, Emotion, BoundingBox } from '../../types/emotion';
+import type { ModelGroup } from '../../types/facescope';
 
 // face-api types used internally
 interface FaceDetection {
@@ -11,7 +12,7 @@ interface FaceDetection {
 
 let faceapi: any = null;
 let isInitialized = false;
-let isLoading = false;
+let initPromise: Promise<void> | null = null;
 
 export class EmotionEngine {
   private detectionInterval: number | null = null;
@@ -20,18 +21,22 @@ export class EmotionEngine {
   private currentFeedIndex = 0;
   private onDetection: ((sourceId: string, readings: EmotionReading[]) => void) | null = null;
   private targetFps = 10;
+  private loadedModels = new Set<ModelGroup>();
+  private modelLoadPromises = new Map<ModelGroup, Promise<void>>();
 
   async initialize(): Promise<void> {
     if (isInitialized) return;
-    if (isLoading) {
-      // Wait for loading to complete
-      while (isLoading) {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      return;
-    }
+    if (initPromise) return initPromise;
 
-    isLoading = true;
+    initPromise = this._doInitialize();
+    try {
+      await initPromise;
+    } finally {
+      initPromise = null;
+    }
+  }
+
+  private async _doInitialize(): Promise<void> {
     try {
       const faceapiModule = await import('@vladmandic/face-api');
       faceapi = faceapiModule;
@@ -46,8 +51,6 @@ export class EmotionEngine {
     } catch (error) {
       console.error('Failed to initialize face-api:', error);
       throw error;
-    } finally {
-      isLoading = false;
     }
   }
 
@@ -69,9 +72,14 @@ export class EmotionEngine {
   }
 
   removeFeed(sourceId: string) {
+    const oldIndex = this.feedQueue.indexOf(sourceId);
     this.activeFeeds.delete(sourceId);
     this.feedQueue = Array.from(this.activeFeeds.keys());
-    if (this.currentFeedIndex >= this.feedQueue.length) {
+    if (this.feedQueue.length === 0) {
+      this.currentFeedIndex = 0;
+    } else if (oldIndex >= 0 && oldIndex < this.currentFeedIndex) {
+      this.currentFeedIndex = Math.max(0, this.currentFeedIndex - 1);
+    } else if (this.currentFeedIndex >= this.feedQueue.length) {
       this.currentFeedIndex = 0;
     }
   }
@@ -93,8 +101,11 @@ export class EmotionEngine {
       try {
         const readings = await this.detectEmotions(videoElement, sourceId);
         this.onDetection?.(sourceId, readings);
-      } catch {
-        // Detection can fail if video is transitioning
+      } catch (error) {
+        // DOMException is expected when video is transitioning states
+        if (!(error instanceof DOMException)) {
+          console.error(`Emotion detection error for source ${sourceId}:`, error);
+        }
       }
     }, interval);
   }
@@ -113,30 +124,85 @@ export class EmotionEngine {
       .detectAllFaces(videoElement, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
       .withFaceExpressions();
 
-    return detections.map((det, index) => {
-      const box = det.detection.box;
-      const boundingBox: BoundingBox = {
-        x: box.x,
-        y: box.y,
-        width: box.width,
-        height: box.height,
-      };
+    const now = Date.now();
+    const results: EmotionReading[] = [];
 
+    for (let index = 0; index < detections.length; index++) {
+      const det = detections[index];
+      const box = det.detection.box;
       const emotions = det.expressions as Record<Emotion, number>;
       const entries = Object.entries(emotions) as [Emotion, number][];
-      const sorted = entries.sort((a, b) => b[1] - a[1]);
-      const dominantEmotion = sorted[0][0];
-      const confidence = sorted[0][1];
 
-      return {
-        timestamp: Date.now(),
+      // Guard: skip detections with no expression data
+      if (entries.length === 0) continue;
+
+      const sorted = entries.sort((a, b) => b[1] - a[1]);
+
+      results.push({
+        timestamp: now,
         faceId: `${sourceId}-face-${index}`,
         emotions,
-        boundingBox,
-        dominantEmotion,
-        confidence,
-      };
+        boundingBox: { x: box.x, y: box.y, width: box.width, height: box.height },
+        dominantEmotion: sorted[0][0],
+        confidence: sorted[0][1],
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Lazily load additional model groups beyond the base tinyFaceDetector + faceExpressionNet.
+   * Only loads models not yet loaded. Safe to call multiple times.
+   */
+  async loadModels(groups: ModelGroup[]): Promise<void> {
+    if (!faceapi) {
+      // Ensure base init has happened so faceapi module is available
+      await this.initialize();
+    }
+
+    const modelPath = '/models';
+    const toLoad = groups.filter((g) => !this.loadedModels.has(g));
+    if (toLoad.length === 0) return;
+
+    const promises = toLoad.map((group) => {
+      // Deduplicate concurrent loads of the same model
+      if (this.modelLoadPromises.has(group)) {
+        return this.modelLoadPromises.get(group)!;
+      }
+
+      const p = (async () => {
+        switch (group) {
+          case 'ssdMobilenetv1':
+            await faceapi.nets.ssdMobilenetv1.loadFromUri(modelPath);
+            break;
+          case 'faceLandmark68':
+            await faceapi.nets.faceLandmark68Net.loadFromUri(modelPath);
+            break;
+          case 'faceRecognition':
+            await faceapi.nets.faceRecognitionNet.loadFromUri(modelPath);
+            break;
+          case 'faceExpression':
+            await faceapi.nets.faceExpressionNet.loadFromUri(modelPath);
+            break;
+          case 'ageGender':
+            await faceapi.nets.ageGenderNet.loadFromUri(modelPath);
+            break;
+        }
+        this.loadedModels.add(group);
+      })();
+
+      this.modelLoadPromises.set(group, p);
+      p.finally(() => this.modelLoadPromises.delete(group));
+      return p;
     });
+
+    await Promise.all(promises);
+  }
+
+  /** Returns the face-api module for direct access (e.g. faceapi.draw.*, faceapi.euclideanDistance) */
+  getFaceApi(): any {
+    return faceapi;
   }
 
   destroy() {

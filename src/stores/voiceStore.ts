@@ -1,9 +1,8 @@
 import { create } from 'zustand';
-import type { StressReading, VoiceSession, StressMetrics } from '../types/audio';
+import type { StressReading, VoiceSession, StressMetrics, TranscriptSegment } from '../types/audio';
 
 interface VoiceState {
   isAnalyzing: boolean;
-  isRecording: boolean;
   currentSession: VoiceSession | null;
   currentMetrics: StressMetrics;
   sessions: VoiceSession[];
@@ -13,10 +12,10 @@ interface VoiceState {
   startSession: (name?: string) => void;
   stopSession: () => void;
   addReading: (reading: StressReading) => void;
+  addTranscriptSegment: (segment: TranscriptSegment) => void;
   updateMetrics: (metrics: StressMetrics) => void;
   updateFrequencyData: (data: Float32Array) => void;
   updateTimeDomainData: (data: Float32Array) => void;
-  setIsRecording: (recording: boolean) => void;
   setIsAnalyzing: (analyzing: boolean) => void;
   addSession: (session: VoiceSession) => void;
 }
@@ -29,11 +28,12 @@ const emptyMetrics: StressMetrics = {
   shimmer: 0,
   hnr: 0,
   stressScore: 0,
+  deceitScore: 0,
+  hesitationRatio: 0,
 };
 
 export const useVoiceStore = create<VoiceState>((set) => ({
   isAnalyzing: false,
-  isRecording: false,
   currentSession: null,
   currentMetrics: emptyMetrics,
   sessions: [],
@@ -46,6 +46,7 @@ export const useVoiceStore = create<VoiceState>((set) => ({
         name: name || `Session ${new Date().toLocaleTimeString()}`,
         startTime: Date.now(),
         readings: [],
+        transcript: [],
       },
       isAnalyzing: true,
     }),
@@ -61,29 +62,40 @@ export const useVoiceStore = create<VoiceState>((set) => ({
             session.readings.length > 0
               ? session.readings.reduce((sum, r) => sum + r.stressLevel, 0) / session.readings.length
               : 0,
+          averageDeceit:
+            session.readings.length > 0
+              ? session.readings.reduce((sum, r) => sum + r.deceitLevel, 0) / session.readings.length
+              : 0,
         };
         return {
           currentSession: null,
           isAnalyzing: false,
-          isRecording: false,
           currentMetrics: emptyMetrics,
           sessions: [...state.sessions, completedSession],
         };
       }
-      return { isAnalyzing: false, isRecording: false };
+      return { isAnalyzing: false };
     }),
 
   addReading: (reading) =>
-    set((state) => ({
-      currentSession: state.currentSession
-        ? { ...state.currentSession, readings: [...state.currentSession.readings, reading] }
-        : null,
-    })),
+    set((state) => {
+      if (!state.currentSession) return {};
+      const readings = state.currentSession.readings;
+      if (readings.length >= 18000) readings.shift();
+      readings.push(reading);
+      return { currentSession: { ...state.currentSession, readings } };
+    }),
+
+  addTranscriptSegment: (segment) =>
+    set((state) => {
+      if (!state.currentSession) return {};
+      const transcript = [...state.currentSession.transcript, segment];
+      return { currentSession: { ...state.currentSession, transcript } };
+    }),
 
   updateMetrics: (metrics) => set({ currentMetrics: metrics }),
   updateFrequencyData: (data) => set({ frequencyData: data }),
   updateTimeDomainData: (data) => set({ timeDomainData: data }),
-  setIsRecording: (recording) => set({ isRecording: recording }),
   setIsAnalyzing: (analyzing) => set({ isAnalyzing: analyzing }),
   addSession: (session) => set((state) => ({ sessions: [...state.sessions, session] })),
 }));

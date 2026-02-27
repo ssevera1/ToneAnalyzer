@@ -691,12 +691,43 @@ interface TimestampedEmotion {
   emotion: Emotion;
 }
 
+// ─── Expression Totals ──────────────────────────────────────────────
+
+export interface ExpressionTotals {
+  /** Total detections per expression name */
+  counts: Record<string, number>;
+  /** Sum of confidences per expression name (for computing averages) */
+  confidenceSums: Record<string, number>;
+  /** Total detection frames processed */
+  totalFrames: number;
+  /** Monitoring start time */
+  startTime: number;
+}
+
+// ─── Deceit Score ───────────────────────────────────────────────────
+
+/** Names of deception-category temporal indicators. */
+const DECEPTION_TEMPORAL_NAMES = new Set(
+  TEMPORAL_INDICATORS
+    .filter((ind) => ind.category === 'deception')
+    .map((ind) => ind.name),
+);
+
+/** Names of deception-adjacent compound emotions. */
+const DECEPTION_COMPOUND_NAMES = new Set([
+  'Contempt', 'Duping Delight', 'Smugness',
+]);
+
+const DECEIT_SMOOTHING_ALPHA = 0.15;
+
 // ─── Main Analyzer ──────────────────────────────────────────────────
 
 export class ExpressionAnalyzer {
   private historyBySource = new Map<string, EmotionReading[]>();
   private emotionLog = new Map<string, TimestampedEmotion[]>();
   private primeCache = new Map<string, { result: PrimeEmotion; computedAt: number }>();
+  private totalsBySource = new Map<string, ExpressionTotals>();
+  private smoothedDeceit = new Map<string, number>();
 
   /**
    * Analyze a single frame's emotions + recent history to produce derived labels.
@@ -763,7 +794,85 @@ export class ExpressionAnalyzer {
 
     // Sort by confidence descending, take top results
     labels.sort((a, b) => b.confidence - a.confidence);
-    return labels.slice(0, 8);
+    const topLabels = labels.slice(0, 8);
+
+    // Accumulate running totals for this source
+    let totals = this.totalsBySource.get(sourceId);
+    if (!totals) {
+      totals = { counts: {}, confidenceSums: {}, totalFrames: 0, startTime: Date.now() };
+      this.totalsBySource.set(sourceId, totals);
+    }
+    totals.totalFrames++;
+    for (const label of topLabels) {
+      totals.counts[label.name] = (totals.counts[label.name] || 0) + 1;
+      totals.confidenceSums[label.name] = (totals.confidenceSums[label.name] || 0) + label.confidence;
+    }
+
+    return topLabels;
+  }
+
+  /**
+   * Compute a composite visual-deceit score (0-100) for a source based on
+   * deception-category temporal indicators + deception-adjacent compound labels.
+   *
+   * Weights:
+   *   Deception temporal indicators (summed confidence, capped): 60%
+   *   Deception-adjacent compounds (summed confidence, capped): 25%
+   *   Emotional Incongruence boost (if present):               15%
+   */
+  computeDeceitScore(sourceId: string, currentLabels: ExpressionLabel[]): number {
+    const history = this.historyBySource.get(sourceId) || [];
+
+    // Temporal deception indicators — run them against current history
+    let temporalSum = 0;
+    for (const ind of TEMPORAL_INDICATORS) {
+      if (DECEPTION_TEMPORAL_NAMES.has(ind.name)) {
+        temporalSum += ind.test(history);
+      }
+    }
+    // Cap at 1.0 (6 indicators, each 0-1, but unlikely all fire)
+    const temporalNorm = clamp01(temporalSum / 2.5);
+
+    // Compound deception labels from current frame
+    let compoundSum = 0;
+    let incongruenceConf = 0;
+    for (const label of currentLabels) {
+      if (DECEPTION_COMPOUND_NAMES.has(label.name)) {
+        compoundSum += label.confidence;
+      }
+      if (label.name === 'Emotional Incongruence') {
+        incongruenceConf = label.confidence;
+      }
+    }
+    const compoundNorm = clamp01(compoundSum / 1.5);
+    const incongruenceNorm = clamp01(incongruenceConf);
+
+    const raw = temporalNorm * 60 + compoundNorm * 25 + incongruenceNorm * 15;
+    const clamped = clamp01(raw / 100) * 100;
+
+    // Smooth
+    const prev = this.smoothedDeceit.get(sourceId) ?? clamped;
+    const smoothed = prev * (1 - DECEIT_SMOOTHING_ALPHA) + clamped * DECEIT_SMOOTHING_ALPHA;
+    this.smoothedDeceit.set(sourceId, smoothed);
+
+    return Math.round(smoothed);
+  }
+
+  /** Get current smoothed deceit score for a source. */
+  getDeceitScore(sourceId: string): number {
+    return this.smoothedDeceit.get(sourceId) ?? 0;
+  }
+
+  /** Get running expression totals for a source (defensive copy). */
+  getTotals(sourceId: string): ExpressionTotals | null {
+    const totals = this.totalsBySource.get(sourceId);
+    if (!totals) return null;
+    return {
+      counts: { ...totals.counts },
+      confidenceSums: { ...totals.confidenceSums },
+      totalFrames: totals.totalFrames,
+      startTime: totals.startTime,
+    };
   }
 
   /**
@@ -821,11 +930,15 @@ export class ExpressionAnalyzer {
     this.historyBySource.delete(sourceId);
     this.emotionLog.delete(sourceId);
     this.primeCache.delete(sourceId);
+    this.totalsBySource.delete(sourceId);
+    this.smoothedDeceit.delete(sourceId);
   }
 
   clearAllHistory() {
     this.historyBySource.clear();
     this.emotionLog.clear();
     this.primeCache.clear();
+    this.totalsBySource.clear();
+    this.smoothedDeceit.clear();
   }
 }

@@ -2,7 +2,10 @@ import { useRef, useState } from 'react';
 import { useEmotionDetection } from './useEmotionDetection';
 import VideoGrid from '../../components/VideoGrid';
 import type { GridLayout } from '../../types/video';
-import type { VideoSourceType } from '../../types/video';
+import type { FaceScopeTab } from '../../types/facescope';
+import FaceComparisonTab from './tabs/FaceComparisonTab';
+import FaceAnalysisTab from './tabs/FaceAnalysisTab';
+import FaceCropTab from './tabs/FaceCropTab';
 
 const GRID_OPTIONS: { value: GridLayout; label: string }[] = [
   { value: 1, label: '1' },
@@ -12,12 +15,21 @@ const GRID_OPTIONS: { value: GridLayout; label: string }[] = [
   { value: 12, label: '3x4' },
 ];
 
+const TAB_OPTIONS: { value: FaceScopeTab; label: string }[] = [
+  { value: 'monitor', label: 'Active Monitor' },
+  { value: 'compare', label: 'Face Comparison' },
+  { value: 'analyze', label: 'Expression Analysis' },
+  { value: 'crop', label: 'Face Crop' },
+];
+
 export default function EmotionMonitorPage() {
   const {
     sources,
     readings,
     expressionLabels,
+    expressionTotals,
     primeEmotions,
+    deceitScores,
     gridLayout,
     isMonitoring,
     isEngineReady,
@@ -31,10 +43,12 @@ export default function EmotionMonitorPage() {
     startMonitoring,
     stopMonitoring,
     setGridLayout,
+    engine,
   } = useEmotionDetection();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rtspUrl, setRtspUrl] = useState('');
+  const [activeTab, setActiveTab] = useState<FaceScopeTab>('monitor');
 
   const handleAddWebcam = async () => {
     await addSource('webcam');
@@ -64,90 +78,119 @@ export default function EmotionMonitorPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2.5 bg-dark-800 border-b border-dark-600">
-        <div className="flex items-center gap-2 md:gap-3 pl-10 md:pl-0">
-          <h2 className="text-base md:text-lg font-semibold">Video Monitor</h2>
+      {/* Toolbar — only visible on monitor tab */}
+      {activeTab === 'monitor' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2.5 bg-dark-800 border-b border-dark-600">
+          <div className="flex items-center gap-2 md:gap-3 pl-10 md:pl-0">
+            <h2 className="text-base md:text-lg font-semibold">Video Monitor</h2>
 
-          {/* Grid layout selector */}
-          <div className="flex items-center gap-1 ml-2 md:ml-4">
-            {GRID_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setGridLayout(opt.value)}
-                className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
-                  gridLayout === opt.value
-                    ? 'bg-accent-cyan/20 text-accent-cyan'
-                    : 'text-dark-300 hover:text-white hover:bg-dark-700'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {engineError && (
-            <span className="text-xs text-accent-red mr-2">{engineError}</span>
-          )}
-
-          <button
-            onClick={() => setShowAddDialog(true)}
-            className="px-3 py-1.5 bg-dark-700 text-white rounded-lg text-sm hover:bg-dark-600 transition-colors border border-dark-500"
-          >
-            + Add Source
-          </button>
-
-          {!isMonitoring ? (
-            <button
-              onClick={startMonitoring}
-              disabled={sources.length === 0 || !isEngineReady}
-              className="px-3 py-1.5 bg-accent-green text-dark-900 rounded-lg text-sm font-medium hover:bg-accent-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Start All
-            </button>
-          ) : (
-            <button
-              onClick={stopMonitoring}
-              className="px-3 py-1.5 bg-accent-red text-white rounded-lg text-sm font-medium hover:bg-accent-red/90 transition-colors"
-            >
-              Stop All
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Video Grid */}
-      <div className="flex-1 min-h-0">
-        {sources.length === 0 && !showAddDialog ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <svg className="w-16 h-16 text-dark-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              <p className="text-dark-400 mb-4">No video sources added</p>
-              <button
-                onClick={() => setShowAddDialog(true)}
-                className="px-4 py-2 bg-accent-cyan/10 text-accent-cyan rounded-lg text-sm font-medium hover:bg-accent-cyan/20 transition-colors border border-accent-cyan/30"
-              >
-                Add Video Source
-              </button>
+            {/* Grid layout selector */}
+            <div className="flex items-center gap-1 ml-2 md:ml-4">
+              {GRID_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setGridLayout(opt.value)}
+                  className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
+                    gridLayout === opt.value
+                      ? 'bg-accent-cyan/20 text-accent-cyan'
+                      : 'text-dark-300 hover:text-white hover:bg-dark-700'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
-        ) : (
-          <VideoGrid
-            sources={sources}
-            readings={readings}
-            expressionLabels={expressionLabels}
-            primeEmotions={primeEmotions}
-            layout={gridLayout}
-            onRemoveSource={removeSource}
-            onTogglePause={togglePause}
-            onVideoRef={registerVideoRef}
-            onAddSource={() => setShowAddDialog(true)}
-          />
+
+          <div className="flex items-center gap-2">
+            {engineError && (
+              <span className="text-xs text-accent-red mr-2">{engineError}</span>
+            )}
+
+            <button
+              onClick={() => setShowAddDialog(true)}
+              className="px-3 py-1.5 bg-dark-700 text-white rounded-lg text-sm hover:bg-dark-600 transition-colors border border-dark-500"
+            >
+              + Add Source
+            </button>
+
+            {!isMonitoring ? (
+              <button
+                onClick={startMonitoring}
+                disabled={sources.length === 0 || !isEngineReady}
+                className="px-3 py-1.5 bg-accent-green text-dark-900 rounded-lg text-sm font-medium hover:bg-accent-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Start All
+              </button>
+            ) : (
+              <button
+                onClick={stopMonitoring}
+                className="px-3 py-1.5 bg-accent-red text-white rounded-lg text-sm font-medium hover:bg-accent-red/90 transition-colors"
+              >
+                Stop All
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sub-tab navigation bar */}
+      <div className="flex items-center gap-1 px-3 md:px-4 py-1.5 bg-dark-800 border-b border-dark-600 overflow-x-auto">
+        {TAB_OPTIONS.map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setActiveTab(tab.value)}
+            className={`px-3 py-1.5 text-xs rounded font-medium transition-colors whitespace-nowrap ${
+              activeTab === tab.value
+                ? 'bg-accent-cyan/20 text-accent-cyan'
+                : 'text-dark-300 hover:text-white hover:bg-dark-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 min-h-0">
+        {activeTab === 'monitor' && (
+          <>
+            {sources.length === 0 && !showAddDialog ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <svg className="w-16 h-16 text-dark-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <p className="text-dark-400 mb-4">No video sources added</p>
+                  <button
+                    onClick={() => setShowAddDialog(true)}
+                    className="px-4 py-2 bg-accent-cyan/10 text-accent-cyan rounded-lg text-sm font-medium hover:bg-accent-cyan/20 transition-colors border border-accent-cyan/30"
+                  >
+                    Add Video Source
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <VideoGrid
+                sources={sources}
+                readings={readings}
+                expressionLabels={expressionLabels}
+                expressionTotals={expressionTotals}
+                primeEmotions={primeEmotions}
+                deceitScores={deceitScores}
+                layout={gridLayout}
+                onRemoveSource={removeSource}
+                onTogglePause={togglePause}
+                onVideoRef={registerVideoRef}
+                onAddSource={() => setShowAddDialog(true)}
+              />
+            )}
+          </>
         )}
+
+        {activeTab === 'compare' && engine && <FaceComparisonTab engine={engine} />}
+        {activeTab === 'analyze' && engine && <FaceAnalysisTab engine={engine} />}
+        {activeTab === 'crop' && engine && <FaceCropTab engine={engine} />}
       </div>
 
       {/* Add Source Dialog */}

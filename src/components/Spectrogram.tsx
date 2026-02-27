@@ -44,9 +44,11 @@ export default function Spectrogram({
     buffer.height = height * dpr;
     const ctx = buffer.getContext('2d');
     if (ctx) {
-      ctx.scale(dpr, dpr);
+      // Work entirely in pixel coordinates — no scale transform.
+      // getImageData/putImageData ignore transforms, so mixing a
+      // scale() with raw pixel ops caused double-DPR artifacts.
       ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, width * dpr, height * dpr);
     }
     bufferCanvasRef.current = buffer;
   }, [width, height, backgroundColor]);
