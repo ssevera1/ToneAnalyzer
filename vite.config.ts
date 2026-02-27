@@ -37,9 +37,25 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
+        share_target: {
+          action: '/share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: {
+            files: [
+              {
+                name: 'audio',
+                accept: ['audio/*', '.m4a', '.caf', '.mp4', '.wav', '.mp3', '.aac', '.ogg'],
+              },
+            ],
+          },
+        },
       },
       workbox: {
+        importScripts: ['/share-target-sw.js'],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/share-target$/],
         runtimeCaching: [
           {
             urlPattern: /\/models\/.*\.(bin|json)$/,

@@ -20,6 +20,7 @@ export default function App() {
         <Route path="/voice" element={<VoiceAnalysisPage />} />
         <Route path="/emotion" element={<EmotionMonitorPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/voice" replace />} />
       </Routes>
 
       <ExportDialog

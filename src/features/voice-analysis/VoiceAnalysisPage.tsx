@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useVoiceAnalysis } from './useVoiceAnalysis';
 import { useTranscription } from './useTranscription';
 import Waveform from '../../components/Waveform';
@@ -66,6 +66,31 @@ export default function VoiceAnalysisPage() {
     }
   };
 
+  // Auto-load files shared via iOS Share Sheet (Web Share Target API)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('shared') !== '1') return;
+    window.history.replaceState({}, '', '/voice');
+
+    (async () => {
+      try {
+        const cache = await caches.open('shared-files');
+        const response = await cache.match('/shared-audio-file');
+        if (!response) return;
+
+        const blob = await response.blob();
+        const fileName = decodeURIComponent(
+          response.headers.get('X-File-Name') || 'Call Recording.m4a'
+        );
+        const file = new File([blob], fileName, { type: blob.type || 'audio/mp4' });
+        await cache.delete('/shared-audio-file');
+        loadFile(file);
+      } catch {
+        // Shared file unavailable — user can upload manually
+      }
+    })();
+  }, [loadFile]);
+
   return (
     <div className="flex flex-col md:flex-row h-full">
       {/* Main content */}
@@ -93,7 +118,7 @@ export default function VoiceAnalysisPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="audio/*"
+                  accept="audio/*,.m4a,.caf,.mp4"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
