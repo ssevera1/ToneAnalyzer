@@ -56,7 +56,7 @@ export default function Sidebar({ onExport, isOpen, onClose }: SidebarProps) {
           ${isOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
-        <div className="flex items-center justify-between p-4 border-b border-dark-600">
+        <div className="flex items-center justify-between p-4 border-b border-dark-600" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}>
           <div>
             <h1 className="text-lg font-bold text-white tracking-tight">
               <span className="text-accent-cyan">Tone</span>Analyzer

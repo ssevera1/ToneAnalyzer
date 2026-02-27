@@ -29,7 +29,7 @@ export const useEmotionStore = create<EmotionState>((set) => ({
   currentSession: null,
   latestReadings: new Map(),
   sessions: [],
-  gridLayout: 4,
+  gridLayout: 1,
 
   setMonitoring: (monitoring) => set({ isMonitoring: monitoring }),
 
