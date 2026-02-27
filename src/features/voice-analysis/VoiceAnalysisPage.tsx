@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useVoiceAnalysis } from './useVoiceAnalysis';
 import { useTranscription } from './useTranscription';
 import Waveform from '../../components/Waveform';
@@ -23,6 +23,7 @@ function MetricCard({ label, value, unit }: { label: string; value: number; unit
 
 export default function VoiceAnalysisPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [micError, setMicError] = useState<string | null>(null);
   const {
     startMic,
     loadFile,
@@ -43,8 +44,13 @@ export default function VoiceAnalysisPage() {
   } = useTranscription();
 
   const handleStartMic = async () => {
-    await startMic();
-    startTranscription();
+    setMicError(null);
+    try {
+      await startMic();
+      startTranscription();
+    } catch {
+      setMicError('Microphone unavailable — if you\'re on a phone call, use "Upload File" to analyze a recording after the call ends.');
+    }
   };
 
   const handleStop = async () => {
@@ -54,7 +60,10 @@ export default function VoiceAnalysisPage() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) loadFile(file);
+    if (file) {
+      setMicError(null);
+      loadFile(file);
+    }
   };
 
   return (
@@ -102,6 +111,24 @@ export default function VoiceAnalysisPage() {
             )}
           </div>
         </div>
+
+        {/* Mic error banner */}
+        {micError && (
+          <div className="mb-4 px-3 py-2.5 bg-accent-yellow/10 border border-accent-yellow/30 rounded-lg flex items-start gap-2">
+            <svg className="w-4 h-4 text-accent-yellow flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <span className="text-sm text-accent-yellow">{micError}</span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="block mt-1.5 px-3 py-1 bg-accent-yellow/20 text-accent-yellow rounded text-xs font-medium hover:bg-accent-yellow/30 transition-colors"
+              >
+                Upload Audio File
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Visualizations */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 md:mb-6">

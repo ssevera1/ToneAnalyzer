@@ -9,6 +9,7 @@ export function useMonitorTranscription(deceitScoresRef: React.RefObject<Map<str
   const serviceRef = useRef<TranscriptionService | null>(null);
   const [interimText, setInterimText] = useState('');
   const [isSupported, setIsSupported] = useState(false);
+  const [micUnavailable, setMicUnavailable] = useState(false);
 
   useEffect(() => {
     const service = new TranscriptionService();
@@ -49,6 +50,12 @@ export function useMonitorTranscription(deceitScoresRef: React.RefObject<Map<str
         case 'interim':
           setInterimText(event.text);
           break;
+        case 'error':
+          // Mic unavailable (e.g. during a phone call) — camera monitoring continues
+          if (event.error === 'not-allowed' || event.error === 'audio-capture') {
+            setMicUnavailable(true);
+          }
+          break;
       }
     });
 
@@ -59,12 +66,14 @@ export function useMonitorTranscription(deceitScoresRef: React.RefObject<Map<str
   }, [deceitScoresRef]);
 
   const startTranscription = useCallback(() => {
+    setMicUnavailable(false);
     serviceRef.current?.start();
   }, []);
 
   const stopTranscription = useCallback(() => {
     serviceRef.current?.stop();
     setInterimText('');
+    setMicUnavailable(false);
   }, []);
 
   return {
@@ -72,5 +81,6 @@ export function useMonitorTranscription(deceitScoresRef: React.RefObject<Map<str
     stopTranscription,
     interimText,
     isSupported,
+    micUnavailable,
   };
 }
