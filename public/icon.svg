@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#06b6d4"/>
+      <stop offset="100%" style="stop-color:#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- Waveform bars -->
+  <g fill="url(#wave)">
+    <rect x="96" y="220" width="24" height="72" rx="12"/>
+    <rect x="140" y="180" width="24" height="152" rx="12"/>
+    <rect x="184" y="140" width="24" height="232" rx="12"/>
+    <rect x="228" y="168" width="24" height="176" rx="12"/>
+    <rect x="272" y="120" width="24" height="272" rx="12"/>
+    <rect x="316" y="160" width="24" height="192" rx="12"/>
+    <rect x="360" y="192" width="24" height="128" rx="12"/>
+    <rect x="404" y="228" width="24" height="56" rx="12"/>
+  </g>
+  <!-- Eye/face detection circle -->
+  <circle cx="380" cy="150" r="50" fill="none" stroke="#a78bfa" stroke-width="6" stroke-dasharray="12 8"/>
+  <circle cx="380" cy="150" r="8" fill="#a78bfa"/>
+</svg>
