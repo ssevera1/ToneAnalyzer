@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react';
 import { useEmotionDetection } from './useEmotionDetection';
+import { useMonitorTranscription } from './useMonitorTranscription';
+import { useEmotionStore } from '../../stores/emotionStore';
 import VideoGrid from '../../components/VideoGrid';
+import TranscriptPanel from '../../components/TranscriptPanel';
 import type { GridLayout } from '../../types/video';
 import type { FaceScopeTab } from '../../types/facescope';
 import FaceComparisonTab from './tabs/FaceComparisonTab';
@@ -45,6 +48,19 @@ export default function EmotionMonitorPage() {
     setGridLayout,
     engine,
   } = useEmotionDetection();
+
+  const deceitScoresRef = useRef(deceitScores);
+  deceitScoresRef.current = deceitScores;
+
+  const {
+    startTranscription,
+    stopTranscription,
+    interimText,
+    isSupported: transcriptionSupported,
+  } = useMonitorTranscription(deceitScoresRef);
+
+  const currentSession = useEmotionStore((s) => s.currentSession);
+  const transcriptSegments = currentSession?.transcript || [];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [rtspUrl, setRtspUrl] = useState('');
@@ -116,7 +132,7 @@ export default function EmotionMonitorPage() {
 
             {!isMonitoring ? (
               <button
-                onClick={startMonitoring}
+                onClick={() => { startMonitoring(); startTranscription(); }}
                 disabled={sources.length === 0 || !isEngineReady}
                 className="px-3 py-1.5 bg-accent-green text-dark-900 rounded-lg text-sm font-medium hover:bg-accent-green/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -124,7 +140,7 @@ export default function EmotionMonitorPage() {
               </button>
             ) : (
               <button
-                onClick={stopMonitoring}
+                onClick={() => { stopMonitoring(); stopTranscription(); }}
                 className="px-3 py-1.5 bg-accent-red text-white rounded-lg text-sm font-medium hover:bg-accent-red/90 transition-colors"
               >
                 Stop All
@@ -171,19 +187,30 @@ export default function EmotionMonitorPage() {
                 </div>
               </div>
             ) : (
-              <VideoGrid
-                sources={sources}
-                readings={readings}
-                expressionLabels={expressionLabels}
-                expressionTotals={expressionTotals}
-                primeEmotions={primeEmotions}
-                deceitScores={deceitScores}
-                layout={gridLayout}
-                onRemoveSource={removeSource}
-                onTogglePause={togglePause}
-                onVideoRef={registerVideoRef}
-                onAddSource={() => setShowAddDialog(true)}
-              />
+              <>
+                <VideoGrid
+                  sources={sources}
+                  readings={readings}
+                  expressionLabels={expressionLabels}
+                  expressionTotals={expressionTotals}
+                  primeEmotions={primeEmotions}
+                  deceitScores={deceitScores}
+                  layout={gridLayout}
+                  onRemoveSource={removeSource}
+                  onTogglePause={togglePause}
+                  onVideoRef={registerVideoRef}
+                  onAddSource={() => setShowAddDialog(true)}
+                />
+                {isMonitoring && (
+                  <div className="px-3 md:px-4 py-3">
+                    <TranscriptPanel
+                      segments={transcriptSegments}
+                      interimText={interimText}
+                      isSupported={transcriptionSupported}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

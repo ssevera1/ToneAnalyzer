@@ -25,7 +25,7 @@ export default function ExportDialog({
   voiceSessions,
   emotionSessions,
 }: ExportDialogProps) {
-  const [format, setFormat] = useState<'csv' | 'pdf'>('csv');
+  const [format, setFormat] = useState<'csv' | 'pdf'>('pdf');
   const [sessionType, setSessionType] = useState<SessionType>('voice');
   const [selectedIndex, setSelectedIndex] = useState(0);
 

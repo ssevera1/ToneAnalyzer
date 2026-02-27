@@ -87,7 +87,23 @@ export function exportEmotionCSV(session: EmotionSession): string {
     surprised: ((r.emotions.surprised || 0) * 100).toFixed(1),
   }));
 
-  return Papa.unparse(data);
+  let csv = Papa.unparse(data);
+
+  if (session.transcript && session.transcript.length > 0) {
+    csv += '\n\n--- Transcript ---\n';
+    const transcriptData = session.transcript.map((seg) => ({
+      startTime: new Date(seg.startTime).toISOString(),
+      endTime: new Date(seg.endTime).toISOString(),
+      text: seg.text,
+      'Stress': seg.averageStress.toFixed(1) + '%',
+      'Deceit': seg.averageDeceit.toFixed(1) + '%',
+      peakStress: seg.peakStress.toFixed(1) + '%',
+      peakDeceit: seg.peakDeceit.toFixed(1) + '%',
+    }));
+    csv += Papa.unparse(transcriptData);
+  }
+
+  return csv;
 }
 
 export function exportVoicePDF(session: VoiceSession): jsPDF {
@@ -165,62 +181,11 @@ export function exportVoicePDF(session: VoiceSession): jsPDF {
       y += 6;
     });
 
-    y += 6;
-
-    // Data table header
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Readings', margin, y);
-    y += 8;
-
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    const headers = ['Time', 'Stress', 'Deceit', 'F0', 'Jitter', 'Shimmer', 'HNR'];
-    const colWidths = [30, 18, 18, 22, 22, 22, 18];
-    let x = margin;
-    headers.forEach((h, i) => {
-      doc.text(h, x, y);
-      x += colWidths[i];
-    });
-    y += 5;
-
-    // Data rows (limit to avoid overflow)
-    doc.setTextColor(60, 60, 60);
-    const maxRows = Math.min(session.readings.length, 40);
-    for (let i = 0; i < maxRows; i++) {
-      if (y > 270) {
-        doc.addPage();
-        y = margin;
-      }
-      const r = session.readings[i];
-      x = margin;
-      const row = [
-        new Date(r.timestamp).toLocaleTimeString(),
-        r.stressLevel.toFixed(0) + '%',
-        r.deceitLevel.toFixed(0) + '%',
-        r.frequency.toFixed(0) + ' Hz',
-        r.jitter.toFixed(2) + '%',
-        r.shimmer.toFixed(2) + '%',
-        r.hnr.toFixed(1) + ' dB',
-      ];
-      row.forEach((cell, j) => {
-        doc.text(cell, x, y);
-        x += colWidths[j];
-      });
-      y += 4.5;
-    }
-
-    if (session.readings.length > maxRows) {
-      y += 4;
-      doc.setTextColor(100, 100, 100);
-      doc.text(`... and ${session.readings.length - maxRows} more readings`, margin, y);
-    }
   }
 
   // Transcript section
   if (session.transcript && session.transcript.length > 0) {
-    doc.addPage();
-    y = margin;
+    y += 6;
 
     doc.setFontSize(14);
     doc.setTextColor(0, 0, 0);
@@ -380,6 +345,43 @@ export function exportEmotionPDF(session: EmotionSession): jsPDF {
       doc.setTextColor(100, 100, 100);
       doc.text(`... and ${session.readings.length - maxRows} more readings`, margin, y);
     }
+  }
+
+  // Transcript section
+  if (session.transcript && session.transcript.length > 0) {
+    if (y > 200) {
+      doc.addPage();
+      y = margin;
+    } else {
+      y += 10;
+    }
+
+    doc.setFontSize(14);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Transcript', margin, y);
+    y += 8;
+
+    doc.setFontSize(9);
+    session.transcript.forEach((seg) => {
+      if (y > 260) {
+        doc.addPage();
+        y = margin;
+      }
+
+      const startSec = Math.floor((seg.startTime - session.startTime) / 1000);
+      const m = Math.floor(startSec / 60);
+      const s = startSec % 60;
+      const timestamp = `${m}:${s.toString().padStart(2, '0')}`;
+
+      doc.setTextColor(100, 100, 100);
+      doc.text(`[${timestamp}]  Stress: ${seg.averageStress.toFixed(0)}%  Deceit: ${seg.averageDeceit.toFixed(0)}%`, margin, y);
+      y += 5;
+
+      doc.setTextColor(40, 40, 40);
+      const lines = doc.splitTextToSize(seg.text, 170);
+      doc.text(lines, margin, y);
+      y += lines.length * 4.5 + 3;
+    });
   }
 
   return doc;

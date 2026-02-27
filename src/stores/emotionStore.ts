@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { EmotionReading, EmotionSession } from '../types/emotion';
+import type { TranscriptSegment } from '../types/audio';
 import type { VideoSource, GridLayout } from '../types/video';
 
 interface EmotionState {
@@ -17,6 +18,7 @@ interface EmotionState {
   setGridLayout: (layout: GridLayout) => void;
   updateReadings: (sourceId: string, readings: EmotionReading[]) => void;
   addReadings: (readings: EmotionReading[]) => void;
+  addTranscriptSegment: (segment: TranscriptSegment) => void;
   startSession: (name?: string) => void;
   stopSession: () => void;
 }
@@ -64,12 +66,24 @@ export const useEmotionStore = create<EmotionState>((set) => ({
       return { currentSession: { ...state.currentSession, readings: combined } };
     }),
 
+  addTranscriptSegment: (segment) =>
+    set((state) => {
+      if (!state.currentSession) return {};
+      return {
+        currentSession: {
+          ...state.currentSession,
+          transcript: [...(state.currentSession.transcript || []), segment],
+        },
+      };
+    }),
+
   startSession: (name?: string) =>
     set((state) => ({
       currentSession: {
         name: name || `Monitor ${new Date().toLocaleTimeString()}`,
         startTime: Date.now(),
         readings: [],
+        transcript: [],
         sourceCount: state.sources.length,
       },
       isMonitoring: true,

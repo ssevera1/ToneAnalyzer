@@ -1,3 +1,5 @@
+import type { TranscriptSegment } from './audio';
+
 export type Emotion =
   | 'neutral'
   | 'happy'
@@ -30,4 +32,5 @@ export interface EmotionSession {
   endTime?: number;
   readings: EmotionReading[];
   sourceCount: number;
+  transcript?: TranscriptSegment[];
 }
