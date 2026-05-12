@@ -22,13 +22,15 @@ export class ToneAnalyzerDB extends Dexie {
 export const db = new ToneAnalyzerDB();
 
 export async function saveVoiceSession(session: VoiceSession): Promise<number> {
-  const id = await db.sessions.add(session);
-  if (session.readings.length > 0) {
-    await db.stressReadings.bulkAdd(
-      session.readings.map((r) => ({ ...r, sessionId: id }))
-    );
-  }
-  return id;
+  return db.transaction('rw', db.sessions, db.stressReadings, async () => {
+    const id = await db.sessions.add(session);
+    if (session.readings.length > 0) {
+      await db.stressReadings.bulkAdd(
+        session.readings.map((r) => ({ ...r, sessionId: id }))
+      );
+    }
+    return id;
+  });
 }
 
 export async function getVoiceSessions(): Promise<VoiceSession[]> {
@@ -45,15 +47,26 @@ export async function getVoiceSession(id: number): Promise<VoiceSession | undefi
 }
 
 export async function saveEmotionSession(session: EmotionSession): Promise<number> {
-  const id = await db.emotionSessions.add(session);
-  if (session.readings.length > 0) {
-    await db.emotionReadings.bulkAdd(
-      session.readings.map((r) => ({ ...r, sessionId: id }))
-    );
-  }
-  return id;
+  return db.transaction('rw', db.emotionSessions, db.emotionReadings, async () => {
+    const id = await db.emotionSessions.add(session);
+    if (session.readings.length > 0) {
+      await db.emotionReadings.bulkAdd(
+        session.readings.map((r) => ({ ...r, sessionId: id }))
+      );
+    }
+    return id;
+  });
 }
 
 export async function getEmotionSessions(): Promise<EmotionSession[]> {
   return db.emotionSessions.orderBy('startTime').reverse().toArray();
+}
+
+export async function getEmotionSession(id: number): Promise<EmotionSession | undefined> {
+  const session = await db.emotionSessions.get(id);
+  if (session) {
+    const readings = await db.emotionReadings.where('sessionId').equals(id).toArray();
+    session.readings = readings;
+  }
+  return session;
 }

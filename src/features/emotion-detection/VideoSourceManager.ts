@@ -129,11 +129,14 @@ export class VideoSourceManager {
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
       });
 
-      stream.getVideoTracks()[0].onended = () => {
-        source.status = 'disconnected';
-        source.stream = undefined;
-        this.notifyChange();
-      };
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          source.status = 'disconnected';
+          source.stream = undefined;
+          this.notifyChange();
+        };
+      }
 
       source.stream = stream;
       source.status = 'active';

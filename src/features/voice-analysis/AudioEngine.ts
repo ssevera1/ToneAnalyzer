@@ -34,9 +34,12 @@ export class AudioEngine {
   }
 
   async startCapture(deviceId?: string): Promise<void> {
-    // Serialize to prevent concurrent setup races
-    this.setupLock = this.setupLock.then(() => this._startCapture(deviceId));
-    return this.setupLock;
+    // Serialize to prevent concurrent setup races.
+    // Drain any prior rejection before chaining so a failed loadFile/startCapture
+    // doesn't permanently poison the lock and silently swallow future operations.
+    const next = this.setupLock.catch(() => {}).then(() => this._startCapture(deviceId));
+    this.setupLock = next.catch(() => {});
+    return next;
   }
 
   private async _startCapture(deviceId?: string): Promise<void> {
@@ -73,9 +76,9 @@ export class AudioEngine {
   }
 
   async loadFile(file: File): Promise<void> {
-    // Serialize to prevent concurrent setup races
-    this.setupLock = this.setupLock.then(() => this._loadFile(file));
-    return this.setupLock;
+    const next = this.setupLock.catch(() => {}).then(() => this._loadFile(file));
+    this.setupLock = next.catch(() => {});
+    return next;
   }
 
   private async _loadFile(file: File): Promise<void> {

@@ -15,7 +15,8 @@ let isInitialized = false;
 let initPromise: Promise<void> | null = null;
 
 export class EmotionEngine {
-  private detectionInterval: number | null = null;
+  private detectionTimeout: number | null = null;
+  private loopActive = false;
   private activeFeeds = new Map<string, HTMLVideoElement>();
   private feedQueue: string[] = [];
   private currentFeedIndex = 0;
@@ -60,7 +61,7 @@ export class EmotionEngine {
 
   setTargetFps(fps: number) {
     this.targetFps = fps;
-    if (this.detectionInterval !== null) {
+    if (this.loopActive) {
       this.stopDetectionLoop();
       this.startDetectionLoop();
     }
@@ -85,36 +86,48 @@ export class EmotionEngine {
   }
 
   startDetectionLoop() {
-    if (this.detectionInterval !== null) return;
-    const interval = 1000 / this.targetFps;
+    if (this.loopActive) return;
+    this.loopActive = true;
+    this.scheduleNextTick();
+  }
 
-    this.detectionInterval = window.setInterval(async () => {
-      if (this.feedQueue.length === 0) return;
+  stopDetectionLoop() {
+    this.loopActive = false;
+    if (this.detectionTimeout !== null) {
+      clearTimeout(this.detectionTimeout);
+      this.detectionTimeout = null;
+    }
+  }
 
+  private scheduleNextTick() {
+    this.detectionTimeout = window.setTimeout(() => this.runTick(), 1000 / this.targetFps);
+  }
+
+  private async runTick() {
+    this.detectionTimeout = null;
+    if (!this.loopActive) return;
+
+    if (this.feedQueue.length > 0) {
       // Round-robin: process one feed per tick
       const sourceId = this.feedQueue[this.currentFeedIndex];
       this.currentFeedIndex = (this.currentFeedIndex + 1) % this.feedQueue.length;
 
       const videoElement = this.activeFeeds.get(sourceId);
-      if (!videoElement || videoElement.paused || videoElement.ended) return;
-
-      try {
-        const readings = await this.detectEmotions(videoElement, sourceId);
-        this.onDetection?.(sourceId, readings);
-      } catch (error) {
-        // DOMException is expected when video is transitioning states
-        if (!(error instanceof DOMException)) {
-          console.error(`Emotion detection error for source ${sourceId}:`, error);
+      if (videoElement && !videoElement.paused && !videoElement.ended) {
+        try {
+          const readings = await this.detectEmotions(videoElement, sourceId);
+          this.onDetection?.(sourceId, readings);
+        } catch (error) {
+          // DOMException is expected when video is transitioning states
+          if (!(error instanceof DOMException)) {
+            console.error(`Emotion detection error for source ${sourceId}:`, error);
+          }
         }
       }
-    }, interval);
-  }
-
-  stopDetectionLoop() {
-    if (this.detectionInterval !== null) {
-      clearInterval(this.detectionInterval);
-      this.detectionInterval = null;
     }
+
+    // Schedule next tick only after detection completes, preventing concurrent runs
+    if (this.loopActive) this.scheduleNextTick();
   }
 
   async detectEmotions(videoElement: HTMLVideoElement, sourceId: string = 'default'): Promise<EmotionReading[]> {

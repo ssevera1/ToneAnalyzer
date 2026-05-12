@@ -345,7 +345,7 @@ export class StressAnalyzer {
     }
 
     const avgAmp = amplitudeHistory.reduce((a, b) => a + b, 0) / amplitudeHistory.length;
-    if (avgAmp === 0) return 0;
+    if (avgAmp < 1e-10) return 0;
 
     return (sumDiff / (amplitudeHistory.length - 1)) / avgAmp * 100;
   }

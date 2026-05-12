@@ -823,10 +823,12 @@ export class ExpressionAnalyzer {
   computeDeceitScore(sourceId: string, currentLabels: ExpressionLabel[]): number {
     const history = this.historyBySource.get(sourceId) || [];
 
-    // Temporal deception indicators — run them against current history
+    // Temporal deception indicators — run them against current history.
+    // Emotional Incongruence is excluded here because it's scored separately
+    // below as a dedicated 15% component; including it in both would double-count it.
     let temporalSum = 0;
     for (const ind of TEMPORAL_INDICATORS) {
-      if (DECEPTION_TEMPORAL_NAMES.has(ind.name)) {
+      if (DECEPTION_TEMPORAL_NAMES.has(ind.name) && ind.name !== 'Emotional Incongruence') {
         temporalSum += ind.test(history);
       }
     }

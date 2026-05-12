@@ -121,17 +121,20 @@ export class TranscriptionService {
     };
 
     recognition.onend = () => {
-      this.running = false;
-      // Auto-restart: Chrome stops after ~60s of silence
+      // Auto-restart: Chrome stops after ~60s of silence.
+      // Keep this.running = true during the restart gap so a concurrent start()
+      // call doesn't create a second recognition instance before onstart fires.
       if (this.shouldRestart) {
+        this.segmentStartTime = Date.now();
         try {
           recognition.start();
+          return;
         } catch {
-          this.emit({ type: 'state-change', state: 'stopped' });
+          // fall through to stopped state
         }
-      } else {
-        this.emit({ type: 'state-change', state: 'stopped' });
       }
+      this.running = false;
+      this.emit({ type: 'state-change', state: 'stopped' });
     };
 
     this.recognition = recognition;
