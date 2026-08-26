@@ -4,6 +4,121 @@ import type { VoiceSession } from '../types/audio';
 import type { EmotionSession } from '../types/emotion';
 import type { Emotion } from '../types/emotion';
 
+// ─── Validation Helpers ────────────────────────────────────────────
+//
+// Sessions with zero readings are a supported state (start-then-stop, or a
+// silent mic) and export as a header-only report, so emptiness is not an
+// error here. What we do reject is data that would serialise to garbage:
+// NaN/Infinity metrics render as the literal string "NaN" via toFixed().
+
+/** True for a value usable as an epoch-ms timestamp. */
+function isValidTimestamp(value: unknown): boolean {
+  if (value instanceof Date) return Number.isFinite(value.getTime());
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function assertFinite(value: unknown, label: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${label} is not a finite number`);
+  }
+}
+
+/**
+ * Both exporters treat `transcript` as possibly absent (they guard on
+ * `session.transcript && length > 0`), so a missing transcript is allowed —
+ * but a present one must be a real array of well-formed segments.
+ */
+function validateTranscript(transcript: unknown): void {
+  if (transcript === undefined || transcript === null) return;
+  if (!Array.isArray(transcript)) {
+    throw new Error('Session transcript is not an array');
+  }
+  transcript.forEach((seg, idx) => {
+    if (!seg || typeof seg !== 'object') {
+      throw new Error(`Transcript segment ${idx} is not an object`);
+    }
+    if (!isValidTimestamp(seg.startTime)) {
+      throw new Error(`Transcript segment ${idx} has invalid startTime`);
+    }
+    if (!isValidTimestamp(seg.endTime)) {
+      throw new Error(`Transcript segment ${idx} has invalid endTime`);
+    }
+    if (typeof seg.text !== 'string') {
+      throw new Error(`Transcript segment ${idx} has invalid text`);
+    }
+    assertFinite(seg.averageStress, `Transcript segment ${idx} averageStress`);
+    assertFinite(seg.averageDeceit, `Transcript segment ${idx} averageDeceit`);
+    assertFinite(seg.peakStress, `Transcript segment ${idx} peakStress`);
+    assertFinite(seg.peakDeceit, `Transcript segment ${idx} peakDeceit`);
+  });
+}
+
+function validateVoiceSession(session: VoiceSession): void {
+  if (!session) {
+    throw new Error('Voice session is null or undefined');
+  }
+  if (!Array.isArray(session.readings)) {
+    throw new Error('Voice session missing readings array');
+  }
+  if (typeof session.name !== 'string') {
+    throw new Error('Voice session missing name field');
+  }
+  if (!isValidTimestamp(session.startTime)) {
+    throw new Error('Voice session missing startTime field');
+  }
+  session.readings.forEach((r, idx) => {
+    if (!isValidTimestamp(r.timestamp)) {
+      throw new Error(`Reading ${idx} has invalid timestamp`);
+    }
+    assertFinite(r.stressLevel, `Reading ${idx} stressLevel`);
+    assertFinite(r.deceitLevel, `Reading ${idx} deceitLevel`);
+    assertFinite(r.frequency, `Reading ${idx} frequency`);
+    assertFinite(r.microtremorAmplitude, `Reading ${idx} microtremorAmplitude`);
+    assertFinite(r.jitter, `Reading ${idx} jitter`);
+    assertFinite(r.shimmer, `Reading ${idx} shimmer`);
+    assertFinite(r.hnr, `Reading ${idx} hnr`);
+  });
+  validateTranscript(session.transcript);
+}
+
+function validateEmotionSession(session: EmotionSession): void {
+  if (!session) {
+    throw new Error('Emotion session is null or undefined');
+  }
+  if (!Array.isArray(session.readings)) {
+    throw new Error('Emotion session missing readings array');
+  }
+  if (typeof session.name !== 'string') {
+    throw new Error('Emotion session missing name field');
+  }
+  if (!isValidTimestamp(session.startTime)) {
+    throw new Error('Emotion session missing startTime field');
+  }
+  session.readings.forEach((r, idx) => {
+    if (!isValidTimestamp(r.timestamp)) {
+      throw new Error(`Reading ${idx} has invalid timestamp`);
+    }
+    if (typeof r.faceId !== 'string' && typeof r.faceId !== 'number') {
+      throw new Error(`Reading ${idx} has invalid faceId`);
+    }
+    if (typeof r.dominantEmotion !== 'string') {
+      throw new Error(`Reading ${idx} has invalid dominantEmotion`);
+    }
+    if (
+      typeof r.confidence !== 'number' ||
+      !Number.isFinite(r.confidence) ||
+      r.confidence < 0 ||
+      r.confidence > 1
+    ) {
+      throw new Error(`Reading ${idx} has invalid confidence`);
+    }
+    if (!r.emotions || typeof r.emotions !== 'object') {
+      throw new Error(`Reading ${idx} has invalid emotions object`);
+    }
+  });
+  validateTranscript(session.transcript);
+}
+
 // ─── Facial Deceit Score (re-used at export time) ───────────────────
 
 function computeFaceDeceit(e: Record<Emotion, number>): number {
@@ -37,6 +152,8 @@ function computeFaceDeceit(e: Record<Emotion, number>): number {
 // ─── Voice Exports ──────────────────────────────────────────────────
 
 export function exportVoiceCSV(session: VoiceSession): string {
+  validateVoiceSession(session);
+
   const readingsData = session.readings.map((r) => ({
     timestamp: new Date(r.timestamp).toISOString(),
     stressLevel: r.stressLevel.toFixed(1),
@@ -72,6 +189,8 @@ export function exportVoiceCSV(session: VoiceSession): string {
 // ─── Emotion Exports ────────────────────────────────────────────────
 
 export function exportEmotionCSV(session: EmotionSession): string {
+  validateEmotionSession(session);
+
   const data = session.readings.map((r) => ({
     timestamp: new Date(r.timestamp).toISOString(),
     faceId: r.faceId,
@@ -107,6 +226,8 @@ export function exportEmotionCSV(session: EmotionSession): string {
 }
 
 export function exportVoicePDF(session: VoiceSession): jsPDF {
+  validateVoiceSession(session);
+
   const doc = new jsPDF();
   const margin = 20;
   let y = margin;
@@ -219,6 +340,8 @@ export function exportVoicePDF(session: VoiceSession): jsPDF {
 }
 
 export function exportEmotionPDF(session: EmotionSession): jsPDF {
+  validateEmotionSession(session);
+
   const doc = new jsPDF();
   const margin = 20;
   let y = margin;
