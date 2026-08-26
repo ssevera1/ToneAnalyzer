@@ -68,6 +68,12 @@ const RETRYABLE_ERRORS = new Set(['network', 'service-not-allowed']);
 
 const START_FAILED_MESSAGE = 'Failed to start speech recognition';
 
+// A session has to look genuinely healthy before it refills the retry budget.
+// onstart fires when the microphone opens, which is *before* the round-trip to
+// the recognition service that produces a 'network' error, so onstart alone is
+// no evidence that anything works.
+const HEALTHY_SESSION_MS = 5000;
+
 export class TranscriptionService {
   readonly isSupported: boolean;
   private recognition: SpeechRecognition | null = null;
@@ -92,6 +98,10 @@ export class TranscriptionService {
   private retryAttempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRetryError: string | null = null;
+  // Per-session health evidence, used to decide whether the session that just
+  // ended earned a reset of the retry budget. Reset on every launch().
+  private sessionStartedAt = 0;
+  private sawResult = false;
 
   constructor() {
     this.isSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -155,12 +165,14 @@ export class TranscriptionService {
     recognition.lang = 'en-US';
 
     this.segmentStartTime = Date.now();
+    this.sessionStartedAt = 0;
+    this.sawResult = false;
 
     recognition.onstart = () => {
       if (generation !== this.generation) return;
       this.running = true;
       this.starting = false;
-      this.retryAttempt = 0;
+      this.sessionStartedAt = Date.now();
       this.pendingRetryError = null;
       this.log('info', 'Speech recognition started');
       this.emit({ type: 'state-change', state: 'listening' });
@@ -168,6 +180,8 @@ export class TranscriptionService {
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (generation !== this.generation) return;
+      // The service answered, so this session is demonstrably working.
+      this.sawResult = true;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result[0].transcript.trim();
@@ -211,6 +225,10 @@ export class TranscriptionService {
 
     recognition.onend = () => {
       if (generation !== this.generation) return;
+
+      if (this.sessionWasHealthy()) {
+        this.retryAttempt = 0;
+      }
 
       if (this.shouldRestart) {
         const retryError = this.pendingRetryError;
@@ -259,6 +277,38 @@ export class TranscriptionService {
   }
 
   /**
+   * A session only refills the retry budget if it produced a result or stayed up
+   * long enough to have plausibly done so. Chrome fires onstart before the
+   * service round-trip, so an offline browser would otherwise reset the counter
+   * on every failure and reconnect forever at the initial delay.
+   */
+  private sessionWasHealthy(): boolean {
+    if (this.sawResult) return true;
+    return this.sessionStartedAt > 0 && Date.now() - this.sessionStartedAt >= HEALTHY_SESSION_MS;
+  }
+
+  /**
+   * Drop the instance we're holding. A synchronous throw from start() means the
+   * instance is *not* inactive (the spec only permits InvalidStateError in that
+   * case), so it still holds the microphone and its handlers are still live.
+   * Abort it rather than leaking it: stop() can no longer reach it once
+   * this.recognition is cleared.
+   */
+  private discardRecognition() {
+    const recognition = this.recognition;
+    this.recognition = null;
+    if (!recognition) return;
+
+    try {
+      recognition.abort();
+    } catch (error) {
+      this.log('warn', 'Error aborting abandoned speech recognition', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * Re-launch recognition after a backoff. `reason` is for logs; `emitAs` is the
    * error string handed to consumers if the retry budget is exhausted.
    */
@@ -269,6 +319,12 @@ export class TranscriptionService {
   ) {
     if (!this.shouldRestart) return;
 
+    // Bump first so the abandoned instance's handlers - including the onend that
+    // would otherwise spawn a second, parallel restart loop, and the onresult
+    // that would duplicate every segment - are recognised as stale.
+    this.generation++;
+    this.discardRecognition();
+
     const attemptsMade = this.retryAttempt + 1;
     if (this.retryAttempt >= this.retryConfig.maxRetries) {
       this.log('error', `Speech recognition failed after ${attemptsMade} attempts`, { error: reason });
@@ -276,7 +332,6 @@ export class TranscriptionService {
       this.starting = false;
       this.running = false;
       this.pendingRetryError = null;
-      this.recognition = null;
       this.emit({ type: 'error', error: emitAs });
       this.emit({ type: 'state-change', state: 'stopped' });
       return;
@@ -294,7 +349,6 @@ export class TranscriptionService {
     // and keep the last emitted state as-is rather than flapping stopped/listening.
     this.starting = true;
     this.running = false;
-    this.recognition = null;
 
     const generation = this.generation;
     this.retryTimer = setTimeout(() => {
