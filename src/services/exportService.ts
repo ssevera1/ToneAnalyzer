@@ -4,6 +4,137 @@ import type { VoiceSession } from '../types/audio';
 import type { EmotionSession } from '../types/emotion';
 import type { Emotion } from '../types/emotion';
 
+// ─── Validation Helpers ────────────────────────────────────────────
+
+function validateVoiceSession(session: VoiceSession): void {
+  if (!session) {
+    throw new Error('Voice session is null or undefined');
+  }
+  if (!session.readings || !Array.isArray(session.readings)) {
+    throw new Error('Voice session missing readings array');
+  }
+  if (session.readings.length === 0) {
+    throw new Error('Voice session has no readings');
+  }
+  if (!session.name) {
+    throw new Error('Voice session missing name field');
+  }
+  if (!session.startTime) {
+    throw new Error('Voice session missing startTime field');
+  }
+  session.readings.forEach((r, idx) => {
+    if (typeof r.timestamp !== 'number' && !(r.timestamp instanceof Date)) {
+      throw new Error(`Reading ${idx} has invalid timestamp`);
+    }
+    if (typeof r.stressLevel !== 'number') {
+      throw new Error(`Reading ${idx} has invalid stressLevel`);
+    }
+    if (typeof r.deceitLevel !== 'number') {
+      throw new Error(`Reading ${idx} has invalid deceitLevel`);
+    }
+    if (typeof r.frequency !== 'number') {
+      throw new Error(`Reading ${idx} has invalid frequency`);
+    }
+    if (typeof r.microtremorAmplitude !== 'number') {
+      throw new Error(`Reading ${idx} has invalid microtremorAmplitude`);
+    }
+    if (typeof r.jitter !== 'number') {
+      throw new Error(`Reading ${idx} has invalid jitter`);
+    }
+    if (typeof r.shimmer !== 'number') {
+      throw new Error(`Reading ${idx} has invalid shimmer`);
+    }
+    if (typeof r.hnr !== 'number') {
+      throw new Error(`Reading ${idx} has invalid hnr`);
+    }
+  });
+  if (session.transcript && Array.isArray(session.transcript)) {
+    session.transcript.forEach((seg, idx) => {
+      if (typeof seg.startTime !== 'number' && !(seg.startTime instanceof Date)) {
+        throw new Error(`Transcript segment ${idx} has invalid startTime`);
+      }
+      if (typeof seg.endTime !== 'number' && !(seg.endTime instanceof Date)) {
+        throw new Error(`Transcript segment ${idx} has invalid endTime`);
+      }
+      if (typeof seg.text !== 'string') {
+        throw new Error(`Transcript segment ${idx} has invalid text`);
+      }
+      if (typeof seg.averageStress !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid averageStress`);
+      }
+      if (typeof seg.averageDeceit !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid averageDeceit`);
+      }
+      if (typeof seg.peakStress !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid peakStress`);
+      }
+      if (typeof seg.peakDeceit !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid peakDeceit`);
+      }
+    });
+  }
+}
+
+function validateEmotionSession(session: EmotionSession): void {
+  if (!session) {
+    throw new Error('Emotion session is null or undefined');
+  }
+  if (!session.readings || !Array.isArray(session.readings)) {
+    throw new Error('Emotion session missing readings array');
+  }
+  if (session.readings.length === 0) {
+    throw new Error('Emotion session has no readings');
+  }
+  if (!session.name) {
+    throw new Error('Emotion session missing name field');
+  }
+  if (!session.startTime) {
+    throw new Error('Emotion session missing startTime field');
+  }
+  session.readings.forEach((r, idx) => {
+    if (typeof r.timestamp !== 'number' && !(r.timestamp instanceof Date)) {
+      throw new Error(`Reading ${idx} has invalid timestamp`);
+    }
+    if (typeof r.faceId !== 'string' && typeof r.faceId !== 'number') {
+      throw new Error(`Reading ${idx} has invalid faceId`);
+    }
+    if (typeof r.dominantEmotion !== 'string') {
+      throw new Error(`Reading ${idx} has invalid dominantEmotion`);
+    }
+    if (typeof r.confidence !== 'number' || r.confidence < 0 || r.confidence > 1) {
+      throw new Error(`Reading ${idx} has invalid confidence`);
+    }
+    if (!r.emotions || typeof r.emotions !== 'object') {
+      throw new Error(`Reading ${idx} has invalid emotions object`);
+    }
+  });
+  if (session.transcript && Array.isArray(session.transcript)) {
+    session.transcript.forEach((seg, idx) => {
+      if (typeof seg.startTime !== 'number' && !(seg.startTime instanceof Date)) {
+        throw new Error(`Transcript segment ${idx} has invalid startTime`);
+      }
+      if (typeof seg.endTime !== 'number' && !(seg.endTime instanceof Date)) {
+        throw new Error(`Transcript segment ${idx} has invalid endTime`);
+      }
+      if (typeof seg.text !== 'string') {
+        throw new Error(`Transcript segment ${idx} has invalid text`);
+      }
+      if (typeof seg.averageStress !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid averageStress`);
+      }
+      if (typeof seg.averageDeceit !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid averageDeceit`);
+      }
+      if (typeof seg.peakStress !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid peakStress`);
+      }
+      if (typeof seg.peakDeceit !== 'number') {
+        throw new Error(`Transcript segment ${idx} has invalid peakDeceit`);
+      }
+    });
+  }
+}
+
 // ─── Facial Deceit Score (re-used at export time) ───────────────────
 
 function computeFaceDeceit(e: Record<Emotion, number>): number {
@@ -37,6 +168,8 @@ function computeFaceDeceit(e: Record<Emotion, number>): number {
 // ─── Voice Exports ──────────────────────────────────────────────────
 
 export function exportVoiceCSV(session: VoiceSession): string {
+  validateVoiceSession(session);
+
   const readingsData = session.readings.map((r) => ({
     timestamp: new Date(r.timestamp).toISOString(),
     stressLevel: r.stressLevel.toFixed(1),
@@ -72,6 +205,8 @@ export function exportVoiceCSV(session: VoiceSession): string {
 // ─── Emotion Exports ────────────────────────────────────────────────
 
 export function exportEmotionCSV(session: EmotionSession): string {
+  validateEmotionSession(session);
+
   const data = session.readings.map((r) => ({
     timestamp: new Date(r.timestamp).toISOString(),
     faceId: r.faceId,
@@ -107,6 +242,8 @@ export function exportEmotionCSV(session: EmotionSession): string {
 }
 
 export function exportVoicePDF(session: VoiceSession): jsPDF {
+  validateVoiceSession(session);
+
   const doc = new jsPDF();
   const margin = 20;
   let y = margin;
@@ -219,6 +356,8 @@ export function exportVoicePDF(session: VoiceSession): jsPDF {
 }
 
 export function exportEmotionPDF(session: EmotionSession): jsPDF {
+  validateEmotionSession(session);
+
   const doc = new jsPDF();
   const margin = 20;
   let y = margin;
