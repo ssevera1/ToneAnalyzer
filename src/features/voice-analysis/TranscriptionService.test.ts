@@ -55,6 +55,21 @@ function latest() {
   return FakeRecognition.instances[FakeRecognition.instances.length - 1];
 }
 
+/** The structured context object of the last log line matching `needle`. */
+function lastLogContext(
+  logFn: typeof console.warn | typeof console.error,
+  needle: string
+): Record<string, number | string> | undefined {
+  const line = vi
+    .mocked(logFn)
+    .mock.calls.map((call) => String(call[0]))
+    .filter((message) => message.includes(needle))
+    .pop();
+  if (line === undefined) return undefined;
+  const contextStart = line.indexOf('{');
+  return contextStart === -1 ? undefined : JSON.parse(line.slice(contextStart));
+}
+
 describe('TranscriptionService', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -282,6 +297,81 @@ describe('TranscriptionService', () => {
     await failWithNetwork();
     expect(FakeRecognition.instances).toHaveLength(5);
     expect(events.filter((e) => e.type === 'error')).toEqual([{ type: 'error', error: 'network' }]);
+  });
+
+  it('reports a totalTimeMs that spans every attempt and backoff in the sequence', async () => {
+    // No jitter, so the backoffs are exactly 500 + 1000 + 2000 = 3500ms.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const service = new TranscriptionService();
+    service.start();
+
+    // Each attempt fails the instant it is made, so the whole 3500ms is backoff.
+    const failInstantly = async (backoffMs: number) => {
+      const recognition = latest();
+      recognition.onerror?.({ error: 'network' });
+      recognition.onend?.();
+      await vi.advanceTimersByTimeAsync(backoffMs);
+    };
+
+    await failInstantly(500);
+    await failInstantly(1000);
+    await failInstantly(2000);
+    await failInstantly(0);
+
+    expect(FakeRecognition.instances).toHaveLength(4);
+    expect(lastLogContext(console.error, 'failed after 4 attempts')).toEqual({
+      error: 'network',
+      totalTimeMs: 3500,
+      maxRetries: 3,
+    });
+  });
+
+  it('measures totalTimeMs from the refill when a healthy session resets the budget', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const service = new TranscriptionService();
+    service.start();
+
+    // A long, working session: it must not be counted against the retry
+    // sequence that a later burst of failures exhausts.
+    latest().fireStart();
+    latest().fireFinalResult('hello');
+    await vi.advanceTimersByTimeAsync(600_000);
+    latest().onend?.();
+
+    const failInstantly = async (backoffMs: number) => {
+      const recognition = latest();
+      recognition.onerror?.({ error: 'network' });
+      recognition.onend?.();
+      await vi.advanceTimersByTimeAsync(backoffMs);
+    };
+
+    await failInstantly(500);
+    await failInstantly(1000);
+    await failInstantly(2000);
+    await failInstantly(0);
+
+    expect(lastLogContext(console.error, 'failed after 4 attempts')?.totalTimeMs).toBe(3500);
+  });
+
+  it('scopes the transient-error elapsed time to the current session, not the whole call', async () => {
+    const service = new TranscriptionService();
+    service.start();
+    latest().fireStart();
+
+    // Half an hour of normal use, punctuated by Chrome's silence auto-restart,
+    // which re-opens the session without going through launch().
+    await vi.advanceTimersByTimeAsync(1_800_000);
+    latest().onend?.();
+
+    await vi.advanceTimersByTimeAsync(100);
+    latest().onerror?.({ error: 'network' });
+
+    expect(lastLogContext(console.warn, 'Transient speech recognition error')).toEqual({
+      error: 'network',
+      msSinceAttemptStart: 100,
+    });
   });
 
   it('allows a fresh start() after stop()', () => {

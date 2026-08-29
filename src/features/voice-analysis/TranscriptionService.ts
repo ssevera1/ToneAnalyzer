@@ -102,7 +102,13 @@ export class TranscriptionService {
   // ended earned a reset of the retry budget. Reset on every launch().
   private sessionStartedAt = 0;
   private sawResult = false;
-  private retryStartTime = 0;
+  // Wall-clock start of the current retry sequence: set in start() and refilled
+  // alongside the retry budget, so it spans every attempt *and* every backoff
+  // gap rather than just the attempt that happened to fail last.
+  private retrySequenceStartedAt = 0;
+  // Wall-clock start of the current recognition session. Refreshed by launch()
+  // and by the in-place auto-restart in onend, both of which open a new session.
+  private attemptStartedAt = 0;
 
   constructor() {
     this.isSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -155,6 +161,7 @@ export class TranscriptionService {
     this.shouldRestart = true;
     this.retryAttempt = 0;
     this.pendingRetryError = null;
+    this.retrySequenceStartedAt = Date.now();
     this.launch(SpeechRecognitionCtor);
   }
 
@@ -168,7 +175,7 @@ export class TranscriptionService {
     this.segmentStartTime = Date.now();
     this.sessionStartedAt = 0;
     this.sawResult = false;
-    this.retryStartTime = Date.now();
+    this.attemptStartedAt = Date.now();
 
     recognition.onstart = () => {
       if (generation !== this.generation) return;
@@ -216,8 +223,13 @@ export class TranscriptionService {
       if (this.shouldRestart && RETRYABLE_ERRORS.has(event.error)) {
         // Handled by onend, which always follows onerror; retrying there keeps
         // the mic closed until the backoff has elapsed.
-        const timeoutMs = Date.now() - this.retryStartTime;
-        this.log('warn', 'Transient speech recognition error', { error: event.error, timeoutMs });
+        // Not a timeout: how long this recognition session survived before the
+        // service reported the fault. Short values mean it never connected.
+        const msSinceAttemptStart = Date.now() - this.attemptStartedAt;
+        this.log('warn', 'Transient speech recognition error', {
+          error: event.error,
+          msSinceAttemptStart,
+        });
         this.pendingRetryError = event.error;
         return;
       }
@@ -231,6 +243,9 @@ export class TranscriptionService {
 
       if (this.sessionWasHealthy()) {
         this.retryAttempt = 0;
+        // A refilled budget starts a fresh retry sequence, so the duration
+        // reported on exhaustion covers only the failures that spent it.
+        this.retrySequenceStartedAt = Date.now();
       }
 
       if (this.shouldRestart) {
@@ -245,6 +260,9 @@ export class TranscriptionService {
         // call doesn't create a second recognition instance before onstart fires.
         this.log('info', 'Speech recognition ended, restarting');
         this.segmentStartTime = Date.now();
+        // A new session opens here without going through launch(), so the
+        // per-attempt clock has to be reset here too.
+        this.attemptStartedAt = Date.now();
         try {
           recognition.start();
           return;
@@ -330,7 +348,7 @@ export class TranscriptionService {
 
     const attemptsMade = this.retryAttempt + 1;
     if (this.retryAttempt >= this.retryConfig.maxRetries) {
-      const totalTimeMs = Date.now() - this.retryStartTime;
+      const totalTimeMs = Date.now() - this.retrySequenceStartedAt;
       this.log('error', `Speech recognition failed after ${attemptsMade} attempts`, {
         error: reason,
         totalTimeMs,
