@@ -2,7 +2,6 @@ type AudioEventType = 'data' | 'state-change';
 type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
-const AUDIO_CONTEXT_TIMEOUT = 5000; // 5 seconds
 const MICROPHONE_TIMEOUT = 10000; // 10 seconds
 
 export class AudioEngine {
@@ -36,7 +35,7 @@ export class AudioEngine {
   }
 
   private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> {
-    let timeoutHandle: NodeJS.Timeout;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<T>((_, reject) => {
       timeoutHandle = setTimeout(() => {
         const diagnostics = {
@@ -71,20 +70,27 @@ export class AudioEngine {
     await this.stop();
 
     let stream: MediaStream;
+    let timedOut = false;
     try {
-      stream = await this.withTimeout(
-        navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        }),
-        MICROPHONE_TIMEOUT,
-        'getUserMedia'
-      );
+      const micPromise = navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      // If the timeout below wins the race, the mic permission prompt may still be
+      // pending. Stop any tracks it eventually grants so the mic indicator doesn't
+      // stay lit with nothing holding a reference to the stream.
+      micPromise
+        .then((s) => {
+          if (timedOut) s.getTracks().forEach((t) => t.stop());
+        })
+        .catch(() => {});
+      stream = await this.withTimeout(micPromise, MICROPHONE_TIMEOUT, 'getUserMedia');
     } catch (error) {
+      timedOut = true;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const diagnostics = {
         operation: 'startCapture',
@@ -102,11 +108,10 @@ export class AudioEngine {
 
     let audioContext: AudioContext;
     try {
-      audioContext = await this.withTimeout(
-        Promise.resolve(new AudioContext({ sampleRate: 44100 })),
-        AUDIO_CONTEXT_TIMEOUT,
-        'AudioContext creation'
-      );
+      // AudioContext's constructor is synchronous, so there is nothing here for a
+      // timeout to race against; only a thrown error (e.g. unsupported browser) is
+      // possible.
+      audioContext = new AudioContext({ sampleRate: 44100 });
     } catch (error) {
       this.stream?.getTracks().forEach((t) => t.stop());
       this.stream = null;
@@ -155,11 +160,10 @@ export class AudioEngine {
 
     let audioContext: AudioContext;
     try {
-      audioContext = await this.withTimeout(
-        Promise.resolve(new AudioContext()),
-        AUDIO_CONTEXT_TIMEOUT,
-        'AudioContext creation for file'
-      );
+      // AudioContext's constructor is synchronous, so there is nothing here for a
+      // timeout to race against; only a thrown error (e.g. unsupported browser) is
+      // possible.
+      audioContext = new AudioContext();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const diagnostics = {
