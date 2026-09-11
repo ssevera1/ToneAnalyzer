@@ -2,6 +2,8 @@ type AudioEventType = 'data' | 'state-change';
 type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+const GET_USER_MEDIA_TIMEOUT = 10000; // 10 seconds
+const AUDIO_CONTEXT_TIMEOUT = 5000; // 5 seconds
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -33,6 +35,15 @@ export class AudioEngine {
     this.listeners.get(event)?.forEach((cb) => cb(data));
   }
 
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
+      ),
+    ]);
+  }
+
   async startCapture(deviceId?: string): Promise<void> {
     // Serialize to prevent concurrent setup races.
     // Drain any prior rejection before chaining so a failed loadFile/startCapture
@@ -46,14 +57,18 @@ export class AudioEngine {
     await this.stop();
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+      this.stream = await this.withTimeout(
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        }),
+        GET_USER_MEDIA_TIMEOUT,
+        'getUserMedia request timed out'
+      );
     } catch (error) {
       this.emit('state-change', { isCapturing: false, isFileLoaded: false });
       throw new Error(
@@ -61,7 +76,24 @@ export class AudioEngine {
       );
     }
 
-    this.audioContext = new AudioContext({ sampleRate: 44100 });
+    try {
+      this.audioContext = new AudioContext({ sampleRate: 44100 });
+      await this.withTimeout(
+        this.audioContext.resume(),
+        AUDIO_CONTEXT_TIMEOUT,
+        'AudioContext resume timed out'
+      );
+    } catch (error) {
+      if (this.stream) {
+        this.stream.getTracks().forEach((t) => t.stop());
+        this.stream = null;
+      }
+      this.emit('state-change', { isCapturing: false, isFileLoaded: false });
+      throw new Error(
+        `Failed to initialize audio context: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = this.fftSize;
     this.analyserNode.smoothingTimeConstant = 0.3;
@@ -91,7 +123,22 @@ export class AudioEngine {
     await this.stop();
 
     const arrayBuffer = await file.arrayBuffer();
-    this.audioContext = new AudioContext();
+
+    let audioContext: AudioContext;
+    try {
+      audioContext = new AudioContext();
+      await this.withTimeout(
+        audioContext.resume(),
+        AUDIO_CONTEXT_TIMEOUT,
+        'AudioContext resume timed out'
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to initialize audio context: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    this.audioContext = audioContext;
 
     let audioBuffer: AudioBuffer;
     try {
@@ -193,7 +240,13 @@ export class AudioEngine {
     }
 
     if (this.audioContext) {
-      await this.audioContext.close();
+      try {
+        await this.withTimeout(
+          this.audioContext.close(),
+          AUDIO_CONTEXT_TIMEOUT,
+          'AudioContext close timed out'
+        );
+      } catch {}
       this.audioContext = null;
     }
 
