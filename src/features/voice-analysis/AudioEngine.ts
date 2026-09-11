@@ -36,12 +36,11 @@ export class AudioEngine {
   }
 
   private withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs)
-      ),
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<T>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
   }
 
   async startCapture(deviceId?: string): Promise<void> {
@@ -56,20 +55,26 @@ export class AudioEngine {
   private async _startCapture(deviceId?: string): Promise<void> {
     await this.stop();
 
+    const getUserMediaPromise = navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+
     try {
       this.stream = await this.withTimeout(
-        navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        }),
+        getUserMediaPromise,
         GET_USER_MEDIA_TIMEOUT,
         'getUserMedia request timed out'
       );
     } catch (error) {
+      // If the browser's permission prompt is answered after our timeout
+      // fires, stop the resulting tracks so a late grant doesn't leave a
+      // live mic stream that nothing references.
+      getUserMediaPromise.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {});
       this.emit('state-change', { isCapturing: false, isFileLoaded: false });
       throw new Error(
         `Microphone access denied: ${error instanceof Error ? error.message : String(error)}`
@@ -87,6 +92,12 @@ export class AudioEngine {
       if (this.stream) {
         this.stream.getTracks().forEach((t) => t.stop());
         this.stream = null;
+      }
+      if (this.audioContext) {
+        try {
+          await this.audioContext.close();
+        } catch {}
+        this.audioContext = null;
       }
       this.emit('state-change', { isCapturing: false, isFileLoaded: false });
       throw new Error(
@@ -124,7 +135,7 @@ export class AudioEngine {
 
     const arrayBuffer = await file.arrayBuffer();
 
-    let audioContext: AudioContext;
+    let audioContext: AudioContext | undefined;
     try {
       audioContext = new AudioContext();
       await this.withTimeout(
@@ -133,6 +144,11 @@ export class AudioEngine {
         'AudioContext resume timed out'
       );
     } catch (error) {
+      if (audioContext) {
+        try {
+          await audioContext.close();
+        } catch {}
+      }
       throw new Error(
         `Failed to initialize audio context: ${error instanceof Error ? error.message : String(error)}`
       );
