@@ -2,6 +2,8 @@ type AudioEventType = 'data' | 'state-change';
 type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+const AUDIO_CONTEXT_TIMEOUT = 5000; // 5 seconds
+const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -45,8 +47,10 @@ export class AudioEngine {
   private async _startCapture(deviceId?: string): Promise<void> {
     await this.stop();
 
+    console.log('[AudioEngine] Requesting microphone access', { deviceId: deviceId || 'default' });
+    let stream: MediaStream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const mediaPromise = navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           echoCancellation: false,
@@ -54,14 +58,48 @@ export class AudioEngine {
           autoGainControl: false,
         },
       });
+
+      stream = await Promise.race([
+        mediaPromise,
+        new Promise<MediaStream>((_, reject) =>
+          setTimeout(() => reject(new Error('Microphone access timeout')), MICROPHONE_ACCESS_TIMEOUT)
+        ),
+      ]);
+      console.log('[AudioEngine] Microphone access granted');
     } catch (error) {
+      console.error('[AudioEngine] Microphone access failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.emit('state-change', { isCapturing: false, isFileLoaded: false });
       throw new Error(
         `Microphone access denied: ${error instanceof Error ? error.message : String(error)}`
       );
     }
 
-    this.audioContext = new AudioContext({ sampleRate: 44100 });
+    console.log('[AudioEngine] Creating AudioContext for capture');
+    let audioContext: AudioContext;
+    try {
+      const contextPromise = Promise.resolve(new AudioContext({ sampleRate: 44100 }));
+      audioContext = await Promise.race([
+        contextPromise,
+        new Promise<AudioContext>((_, reject) =>
+          setTimeout(() => reject(new Error('AudioContext creation timeout')), AUDIO_CONTEXT_TIMEOUT)
+        ),
+      ]);
+      console.log('[AudioEngine] AudioContext created successfully', { sampleRate: audioContext.sampleRate });
+    } catch (error) {
+      console.error('[AudioEngine] AudioContext creation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      stream.getTracks().forEach((t) => t.stop());
+      this.emit('state-change', { isCapturing: false, isFileLoaded: false });
+      throw new Error(
+        `Failed to create audio context: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    this.stream = stream;
+    this.audioContext = audioContext;
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = this.fftSize;
     this.analyserNode.smoothingTimeConstant = 0.3;
@@ -71,6 +109,7 @@ export class AudioEngine {
 
     this._isCapturing = true;
     this._isFileLoaded = false;
+    console.log('[AudioEngine] Capture started');
     this.emit('state-change', { isCapturing: true, isFileLoaded: false });
     this.startDataLoop();
   }
@@ -90,14 +129,41 @@ export class AudioEngine {
 
     await this.stop();
 
+    console.log('[AudioEngine] Loading audio file', { filename: file.name, size: file.size });
     const arrayBuffer = await file.arrayBuffer();
-    this.audioContext = new AudioContext();
+
+    console.log('[AudioEngine] Creating AudioContext for file playback');
+    let audioContext: AudioContext;
+    try {
+      const contextPromise = Promise.resolve(new AudioContext());
+      audioContext = await Promise.race([
+        contextPromise,
+        new Promise<AudioContext>((_, reject) =>
+          setTimeout(() => reject(new Error('AudioContext creation timeout')), AUDIO_CONTEXT_TIMEOUT)
+        ),
+      ]);
+      console.log('[AudioEngine] AudioContext created successfully', { sampleRate: audioContext.sampleRate });
+    } catch (error) {
+      console.error('[AudioEngine] AudioContext creation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      this.emit('state-change', { isCapturing: false, isFileLoaded: false });
+      throw new Error(
+        `Failed to create audio context: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    this.audioContext = audioContext;
 
     let audioBuffer: AudioBuffer;
     try {
+      console.log('[AudioEngine] Decoding audio data');
       audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+      console.log('[AudioEngine] Audio decoded successfully', { duration: audioBuffer.duration, channels: audioBuffer.numberOfChannels });
     } catch (error) {
-      // Clean up the AudioContext we just created before re-throwing
+      console.error('[AudioEngine] Audio decoding failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       await this.stop();
       throw new Error(
         `Failed to decode audio file: ${error instanceof Error ? error.message : String(error)}`
@@ -116,6 +182,7 @@ export class AudioEngine {
     this.sourceNode = bufferSource;
 
     bufferSource.onended = () => {
+      console.log('[AudioEngine] File playback ended');
       this._isFileLoaded = false;
       this.emit('state-change', { isCapturing: false, isFileLoaded: false });
       this.stopDataLoop();
@@ -124,6 +191,7 @@ export class AudioEngine {
     bufferSource.start();
     this._isCapturing = false;
     this._isFileLoaded = true;
+    console.log('[AudioEngine] File playback started');
     this.emit('state-change', { isCapturing: false, isFileLoaded: true });
     this.startDataLoop();
   }
