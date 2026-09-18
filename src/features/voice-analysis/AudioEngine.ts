@@ -2,7 +2,6 @@ type AudioEventType = 'data' | 'state-change';
 type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
-const AUDIO_CONTEXT_TIMEOUT = 5000; // 5 seconds
 const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
 
 export class AudioEngine {
@@ -49,6 +48,7 @@ export class AudioEngine {
 
     console.log('[AudioEngine] Requesting microphone access', { deviceId: deviceId || 'default' });
     let stream: MediaStream;
+    let timedOut = false;
     try {
       const mediaPromise = navigator.mediaDevices.getUserMedia({
         audio: {
@@ -59,12 +59,26 @@ export class AudioEngine {
         },
       });
 
-      stream = await Promise.race([
-        mediaPromise,
-        new Promise<MediaStream>((_, reject) =>
-          setTimeout(() => reject(new Error('Microphone access timeout')), MICROPHONE_ACCESS_TIMEOUT)
-        ),
-      ]);
+      // Promise.race doesn't cancel the loser: if the timeout wins, stop any
+      // stream that getUserMedia later grants so it doesn't stay live/orphaned.
+      mediaPromise
+        .then((s) => {
+          if (timedOut) s.getTracks().forEach((t) => t.stop());
+        })
+        .catch(() => {});
+
+      let timeoutId: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<MediaStream>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          reject(new Error('Microphone access timeout'));
+        }, MICROPHONE_ACCESS_TIMEOUT);
+      });
+      try {
+        stream = await Promise.race([mediaPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId!);
+      }
       console.log('[AudioEngine] Microphone access granted');
     } catch (error) {
       console.error('[AudioEngine] Microphone access failed', {
@@ -79,13 +93,7 @@ export class AudioEngine {
     console.log('[AudioEngine] Creating AudioContext for capture');
     let audioContext: AudioContext;
     try {
-      const contextPromise = Promise.resolve(new AudioContext({ sampleRate: 44100 }));
-      audioContext = await Promise.race([
-        contextPromise,
-        new Promise<AudioContext>((_, reject) =>
-          setTimeout(() => reject(new Error('AudioContext creation timeout')), AUDIO_CONTEXT_TIMEOUT)
-        ),
-      ]);
+      audioContext = new AudioContext({ sampleRate: 44100 });
       console.log('[AudioEngine] AudioContext created successfully', { sampleRate: audioContext.sampleRate });
     } catch (error) {
       console.error('[AudioEngine] AudioContext creation failed', {
@@ -135,13 +143,7 @@ export class AudioEngine {
     console.log('[AudioEngine] Creating AudioContext for file playback');
     let audioContext: AudioContext;
     try {
-      const contextPromise = Promise.resolve(new AudioContext());
-      audioContext = await Promise.race([
-        contextPromise,
-        new Promise<AudioContext>((_, reject) =>
-          setTimeout(() => reject(new Error('AudioContext creation timeout')), AUDIO_CONTEXT_TIMEOUT)
-        ),
-      ]);
+      audioContext = new AudioContext();
       console.log('[AudioEngine] AudioContext created successfully', { sampleRate: audioContext.sampleRate });
     } catch (error) {
       console.error('[AudioEngine] AudioContext creation failed', {
