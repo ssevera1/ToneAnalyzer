@@ -14,7 +14,6 @@ export class AudioEngine {
   private _isCapturing = false;
   private _isFileLoaded = false;
   private setupLock: Promise<void> = Promise.resolve();
-  private workletNode: AudioWorkletNode | null = null;
 
   readonly fftSize = 8192;
 
@@ -220,56 +219,6 @@ export class AudioEngine {
     return data;
   }
 
-  private async initializeWorklet(workletUrl: string): Promise<void> {
-    if (!this.audioContext) {
-      console.error('[AudioEngine] Cannot initialize worklet: AudioContext not ready');
-      throw new Error('AudioContext is not initialized');
-    }
-
-    try {
-      console.log('[AudioEngine] Loading audio worklet', { url: workletUrl });
-      await this.audioContext.audioWorklet.addModule(workletUrl);
-      console.log('[AudioEngine] Audio worklet module loaded');
-    } catch (error) {
-      console.error('[AudioEngine] Failed to load audio worklet module', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw new Error(
-        `Failed to load audio worklet: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-
-    try {
-      console.log('[AudioEngine] Creating AudioWorkletNode');
-      this.workletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
-      console.log('[AudioEngine] AudioWorkletNode created successfully');
-    } catch (error) {
-      console.error('[AudioEngine] Failed to create AudioWorkletNode', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw new Error(
-        `Failed to create audio worklet node: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-
-    try {
-      if (this.analyserNode) {
-        this.analyserNode.connect(this.workletNode);
-      }
-      this.workletNode.connect(this.audioContext.destination);
-      console.log('[AudioEngine] AudioWorkletNode connected successfully');
-    } catch (error) {
-      console.error('[AudioEngine] Failed to connect AudioWorkletNode', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.workletNode.disconnect();
-      this.workletNode = null;
-      throw new Error(
-        `Failed to connect audio worklet node: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
   private startDataLoop() {
     if (this.animationFrame !== null) return; // prevent stacking
     const loop = () => {
@@ -294,17 +243,6 @@ export class AudioEngine {
 
   async stop(): Promise<void> {
     this.stopDataLoop();
-
-    if (this.workletNode) {
-      try {
-        this.workletNode.disconnect();
-      } catch (error) {
-        console.error('[AudioEngine] Error disconnecting worklet node', {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-      this.workletNode = null;
-    }
 
     if (this.sourceNode) {
       this.sourceNode.disconnect();
