@@ -3,6 +3,19 @@ import { supportsRTSP, supportsScreenCapture } from '../../services/platformUtil
 
 let nextId = 1;
 
+const PERMISSION_TIMEOUT_MS = 10000;
+const VIDEO_STREAM_TIMEOUT_MS = 5000;
+
+function createTimeoutPromise<T>(ms: number, operation: string): Promise<T> {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`${operation} timed out after ${ms}ms`)), ms)
+  );
+}
+
+function raceWithTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
+  return Promise.race([promise, createTimeoutPromise<T>(ms, operation)]);
+}
+
 export class VideoSourceManager {
   private sources = new Map<string, VideoSource>();
   private onChange: ((sources: VideoSource[]) => void) | null = null;
@@ -37,13 +50,17 @@ export class VideoSourceManager {
     this.notifyChange();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        },
-      });
+      const stream = await raceWithTimeout(
+        navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+        }),
+        PERMISSION_TIMEOUT_MS,
+        'Camera permission request'
+      );
 
       source.stream = stream;
       source.status = 'active';
@@ -51,7 +68,8 @@ export class VideoSourceManager {
     } catch (error) {
       this.sources.delete(id);
       this.notifyChange();
-      throw new Error(`Failed to access webcam: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to access webcam: ${errorMessage}`);
     }
 
     return source;
@@ -125,9 +143,13 @@ export class VideoSourceManager {
     this.notifyChange();
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
+      const stream = await raceWithTimeout(
+        navigator.mediaDevices.getDisplayMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        }),
+        PERMISSION_TIMEOUT_MS,
+        'Screen capture permission request'
+      );
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
@@ -144,7 +166,8 @@ export class VideoSourceManager {
     } catch (error) {
       this.sources.delete(id);
       this.notifyChange();
-      throw new Error(`Screen capture failed: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Screen capture failed: ${errorMessage}`);
     }
 
     return source;
