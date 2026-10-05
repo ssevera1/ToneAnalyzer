@@ -4,16 +4,34 @@ import { supportsRTSP, supportsScreenCapture } from '../../services/platformUtil
 let nextId = 1;
 
 const PERMISSION_TIMEOUT_MS = 10000;
-const VIDEO_STREAM_TIMEOUT_MS = 5000;
 
-function createTimeoutPromise<T>(ms: number, operation: string): Promise<T> {
-  return new Promise((_, reject) =>
-    setTimeout(() => reject(new Error(`${operation} timed out after ${ms}ms`)), ms)
-  );
-}
+// Promise.race doesn't cancel the loser: if the timeout wins, stop any stream
+// that getUserMedia/getDisplayMedia later grants so it doesn't stay live/orphaned.
+async function raceWithTimeout(
+  mediaPromise: Promise<MediaStream>,
+  ms: number,
+  operation: string
+): Promise<MediaStream> {
+  let timedOut = false;
+  mediaPromise
+    .then((s) => {
+      if (timedOut) s.getTracks().forEach((t) => t.stop());
+    })
+    .catch(() => {});
 
-function raceWithTimeout<T>(promise: Promise<T>, ms: number, operation: string): Promise<T> {
-  return Promise.race([promise, createTimeoutPromise<T>(ms, operation)]);
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<MediaStream>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`${operation} timed out after ${ms}ms`));
+    }, ms);
+  });
+
+  try {
+    return await Promise.race([mediaPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
 }
 
 export class VideoSourceManager {
