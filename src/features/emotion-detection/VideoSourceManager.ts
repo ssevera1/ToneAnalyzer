@@ -3,6 +3,9 @@ import { supportsRTSP, supportsScreenCapture } from '../../services/platformUtil
 
 let nextId = 1;
 
+const STREAM_INIT_TIMEOUT_MS = 5000;
+const DEVICE_ENUM_TIMEOUT_MS = 3000;
+
 export class VideoSourceManager {
   private sources = new Map<string, VideoSource>();
   private onChange: ((sources: VideoSource[]) => void) | null = null;
@@ -23,6 +26,12 @@ export class VideoSourceManager {
     return this.sources.get(id);
   }
 
+  private createTimeoutPromise<T>(ms: number): Promise<T> {
+    return new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms)
+    );
+  }
+
   async addWebcam(deviceId?: string, name?: string): Promise<VideoSource> {
     const id = `webcam-${nextId++}`;
     const source: VideoSource = {
@@ -37,13 +46,18 @@ export class VideoSourceManager {
     this.notifyChange();
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const streamPromise = navigator.mediaDevices.getUserMedia({
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           width: { ideal: 640 },
           height: { ideal: 480 },
         },
       });
+
+      const stream = await Promise.race([
+        streamPromise,
+        this.createTimeoutPromise<MediaStream>(STREAM_INIT_TIMEOUT_MS),
+      ]);
 
       source.stream = stream;
       source.status = 'active';
@@ -125,9 +139,14 @@ export class VideoSourceManager {
     this.notifyChange();
 
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      const streamPromise = navigator.mediaDevices.getDisplayMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
       });
+
+      const stream = await Promise.race([
+        streamPromise,
+        this.createTimeoutPromise<MediaStream>(STREAM_INIT_TIMEOUT_MS),
+      ]);
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
@@ -190,7 +209,24 @@ export class VideoSourceManager {
   }
 
   static async getAvailableDevices(): Promise<MediaDeviceInfo[]> {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter((d) => d.kind === 'videoinput');
+    try {
+      const devicesPromise = navigator.mediaDevices.enumerateDevices();
+      const devices = await Promise.race([
+        devicesPromise,
+        new Promise<MediaDeviceInfo[]>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Device enumeration timed out after ${DEVICE_ENUM_TIMEOUT_MS}ms`)),
+            DEVICE_ENUM_TIMEOUT_MS
+          )
+        ),
+      ]);
+      return devices.filter((d) => d.kind === 'videoinput');
+    } catch (error) {
+      throw new Error(
+        `Failed to enumerate video devices: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 }
