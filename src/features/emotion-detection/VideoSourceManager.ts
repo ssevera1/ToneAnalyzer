@@ -3,7 +3,10 @@ import { supportsRTSP, supportsScreenCapture } from '../../services/platformUtil
 
 let nextId = 1;
 
-const STREAM_INIT_TIMEOUT_MS = 5000;
+// getUserMedia/getDisplayMedia stay pending while the browser's permission
+// prompt or screen/window picker is open, so this timeout must not race the
+// user — it's a backstop against a stuck driver, not a UX-tuned value.
+const STREAM_INIT_TIMEOUT_MS = 60000;
 const DEVICE_ENUM_TIMEOUT_MS = 3000;
 
 export class VideoSourceManager {
@@ -26,10 +29,44 @@ export class VideoSourceManager {
     return this.sources.get(id);
   }
 
-  private createTimeoutPromise<T>(ms: number): Promise<T> {
-    return new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms)
-    );
+  // Promise.race doesn't cancel the loser: if the timeout wins, stop any
+  // stream that is granted later so it doesn't stay live/orphaned.
+  private async raceStreamWithTimeout(
+    streamPromise: Promise<MediaStream>,
+    ms: number,
+    message: string
+  ): Promise<MediaStream> {
+    let timedOut = false;
+    streamPromise
+      .then((stream) => {
+        if (timedOut) stream.getTracks().forEach((t) => t.stop());
+      })
+      .catch(() => {});
+
+    let timeoutId!: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<MediaStream>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        reject(new Error(message));
+      }, ms);
+    });
+
+    try {
+      return await Promise.race([streamPromise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private static createTimeoutPromise<T>(
+    ms: number,
+    message: string
+  ): { promise: Promise<T>; clear: () => void } {
+    let timeoutId!: ReturnType<typeof setTimeout>;
+    const promise = new Promise<T>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return { promise, clear: () => clearTimeout(timeoutId) };
   }
 
   async addWebcam(deviceId?: string, name?: string): Promise<VideoSource> {
@@ -54,10 +91,11 @@ export class VideoSourceManager {
         },
       });
 
-      const stream = await Promise.race([
+      const stream = await this.raceStreamWithTimeout(
         streamPromise,
-        this.createTimeoutPromise<MediaStream>(STREAM_INIT_TIMEOUT_MS),
-      ]);
+        STREAM_INIT_TIMEOUT_MS,
+        `Webcam access timed out after ${STREAM_INIT_TIMEOUT_MS}ms`
+      );
 
       source.stream = stream;
       source.status = 'active';
@@ -143,10 +181,11 @@ export class VideoSourceManager {
         video: { width: { ideal: 1280 }, height: { ideal: 720 } },
       });
 
-      const stream = await Promise.race([
+      const stream = await this.raceStreamWithTimeout(
         streamPromise,
-        this.createTimeoutPromise<MediaStream>(STREAM_INIT_TIMEOUT_MS),
-      ]);
+        STREAM_INIT_TIMEOUT_MS,
+        `Screen capture timed out after ${STREAM_INIT_TIMEOUT_MS}ms`
+      );
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
@@ -209,24 +248,26 @@ export class VideoSourceManager {
   }
 
   static async getAvailableDevices(): Promise<MediaDeviceInfo[]> {
+    const devicesPromise = navigator.mediaDevices.enumerateDevices();
+    const { promise: timeoutPromise, clear } = VideoSourceManager.createTimeoutPromise<MediaDeviceInfo[]>(
+      DEVICE_ENUM_TIMEOUT_MS,
+      `Device enumeration timed out after ${DEVICE_ENUM_TIMEOUT_MS}ms`
+    );
+
     try {
-      const devicesPromise = navigator.mediaDevices.enumerateDevices();
-      const devices = await Promise.race([
-        devicesPromise,
-        new Promise<MediaDeviceInfo[]>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Device enumeration timed out after ${DEVICE_ENUM_TIMEOUT_MS}ms`)),
-            DEVICE_ENUM_TIMEOUT_MS
-          )
-        ),
-      ]);
+      const devices = await Promise.race([devicesPromise, timeoutPromise]);
       return devices.filter((d) => d.kind === 'videoinput');
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Device enumeration timed out')) {
+        throw error;
+      }
       throw new Error(
         `Failed to enumerate video devices: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
+    } finally {
+      clear();
     }
   }
 }
