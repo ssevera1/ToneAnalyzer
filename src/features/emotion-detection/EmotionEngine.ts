@@ -133,16 +133,36 @@ export class EmotionEngine {
   async detectEmotions(videoElement: HTMLVideoElement, sourceId: string = 'default'): Promise<EmotionReading[]> {
     if (!isInitialized || !faceapi) return [];
 
-    const detections: FaceDetection[] = await faceapi
+    const detections: FaceDetection[] | null = await faceapi
       .detectAllFaces(videoElement, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
       .withFaceExpressions();
+
+    if (!detections || !Array.isArray(detections)) {
+      return [];
+    }
 
     const now = Date.now();
     const results: EmotionReading[] = [];
 
     for (let index = 0; index < detections.length; index++) {
       const det = detections[index];
+      
+      if (!det || !det.detection || !det.detection.box) {
+        console.warn(`Invalid detection at index ${index} for source ${sourceId}`);
+        continue;
+      }
+
       const box = det.detection.box;
+      if (typeof box.x !== 'number' || typeof box.y !== 'number' || typeof box.width !== 'number' || typeof box.height !== 'number') {
+        console.warn(`Invalid bounding box values at index ${index} for source ${sourceId}`);
+        continue;
+      }
+
+      if (!det.expressions || typeof det.expressions !== 'object') {
+        console.warn(`Invalid expressions data at index ${index} for source ${sourceId}`);
+        continue;
+      }
+
       const emotions = det.expressions as Record<Emotion, number>;
       const entries = Object.entries(emotions) as [Emotion, number][];
 
