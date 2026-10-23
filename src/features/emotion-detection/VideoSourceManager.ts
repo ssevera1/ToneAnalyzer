@@ -205,13 +205,11 @@ export class VideoSourceManager {
       }
 
       const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.onended = () => {
-          source.status = 'disconnected';
-          source.stream = undefined;
-          this.notifyChange();
-        };
-      }
+      videoTrack.onended = () => {
+        source.status = 'disconnected';
+        source.stream = undefined;
+        this.notifyChange();
+      };
 
       source.stream = stream;
       source.status = 'active';
@@ -228,17 +226,8 @@ export class VideoSourceManager {
   pauseSource(id: string) {
     const source = this.sources.get(id);
     if (source && source.status === 'active') {
-      if (!source.stream) {
-        console.warn(`Source ${id} has no active stream to pause`);
-        return;
-      }
-      const tracks = source.stream.getTracks();
-      if (!tracks.length) {
-        console.warn(`Source ${id} stream has no tracks`);
-        return;
-      }
       source.status = 'paused';
-      tracks.forEach((t) => (t.enabled = false));
+      source.stream?.getTracks().forEach((t) => (t.enabled = false));
       this.notifyChange();
     }
   }
@@ -246,17 +235,8 @@ export class VideoSourceManager {
   resumeSource(id: string) {
     const source = this.sources.get(id);
     if (source && source.status === 'paused') {
-      if (!source.stream) {
-        console.warn(`Source ${id} has no active stream to resume`);
-        return;
-      }
-      const tracks = source.stream.getTracks();
-      if (!tracks.length) {
-        console.warn(`Source ${id} stream has no tracks`);
-        return;
-      }
       source.status = 'active';
-      tracks.forEach((t) => (t.enabled = true));
+      source.stream?.getTracks().forEach((t) => (t.enabled = true));
       this.notifyChange();
     }
   }
