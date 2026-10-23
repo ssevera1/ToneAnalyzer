@@ -5,7 +5,11 @@ const STREAM_INIT_TIMEOUT_MS = 60_000;
 const DEVICE_ENUM_TIMEOUT_MS = 3_000;
 
 function fakeStream(track: { stop: () => void }) {
-  return { getTracks: () => [track], getVideoTracks: () => [] } as unknown as MediaStream;
+  const videoTrack: { stop: () => void; onended?: () => void } = { stop: () => {} };
+  return {
+    getTracks: () => [track, videoTrack],
+    getVideoTracks: () => [videoTrack],
+  } as unknown as MediaStream;
 }
 
 describe('VideoSourceManager', () => {
@@ -90,6 +94,18 @@ describe('VideoSourceManager', () => {
     await manager.addWebcam();
 
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('pauses and resumes a file source that has no MediaStream', () => {
+    const manager = new VideoSourceManager();
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:fake'), revokeObjectURL: vi.fn() });
+    const source = manager.addFile(new File([], 'clip.mp4'));
+
+    manager.pauseSource(source.id);
+    expect(manager.getSource(source.id)?.status).toBe('paused');
+
+    manager.resumeSource(source.id);
+    expect(manager.getSource(source.id)?.status).toBe('active');
   });
 
   it('propagates the device enumeration timeout without double-wrapping the message', async () => {

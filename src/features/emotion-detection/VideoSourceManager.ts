@@ -97,6 +97,18 @@ export class VideoSourceManager {
         `Webcam access timed out after ${STREAM_INIT_TIMEOUT_MS}ms`
       );
 
+      if (!stream.getVideoTracks().length) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error('No video track available from webcam');
+      }
+
+      const videoTrack = stream.getVideoTracks()[0];
+      videoTrack.onended = () => {
+        source.status = 'disconnected';
+        source.stream = undefined;
+        this.notifyChange();
+      };
+
       source.stream = stream;
       source.status = 'active';
       this.notifyChange();
@@ -187,14 +199,17 @@ export class VideoSourceManager {
         `Screen capture timed out after ${STREAM_INIT_TIMEOUT_MS}ms`
       );
 
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.onended = () => {
-          source.status = 'disconnected';
-          source.stream = undefined;
-          this.notifyChange();
-        };
+      if (!stream.getVideoTracks().length) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error('No video track available from screen capture');
       }
+
+      const videoTrack = stream.getVideoTracks()[0];
+      videoTrack.onended = () => {
+        source.status = 'disconnected';
+        source.stream = undefined;
+        this.notifyChange();
+      };
 
       source.stream = stream;
       source.status = 'active';
