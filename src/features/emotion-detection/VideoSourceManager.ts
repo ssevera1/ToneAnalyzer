@@ -97,6 +97,18 @@ export class VideoSourceManager {
         `Webcam access timed out after ${STREAM_INIT_TIMEOUT_MS}ms`
       );
 
+      if (!stream.getVideoTracks().length) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error('No video track available from webcam');
+      }
+
+      const videoTrack = stream.getVideoTracks()[0];
+      videoTrack.onended = () => {
+        source.status = 'disconnected';
+        source.stream = undefined;
+        this.notifyChange();
+      };
+
       source.stream = stream;
       source.status = 'active';
       this.notifyChange();
@@ -187,6 +199,11 @@ export class VideoSourceManager {
         `Screen capture timed out after ${STREAM_INIT_TIMEOUT_MS}ms`
       );
 
+      if (!stream.getVideoTracks().length) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error('No video track available from screen capture');
+      }
+
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.onended = () => {
@@ -211,8 +228,17 @@ export class VideoSourceManager {
   pauseSource(id: string) {
     const source = this.sources.get(id);
     if (source && source.status === 'active') {
+      if (!source.stream) {
+        console.warn(`Source ${id} has no active stream to pause`);
+        return;
+      }
+      const tracks = source.stream.getTracks();
+      if (!tracks.length) {
+        console.warn(`Source ${id} stream has no tracks`);
+        return;
+      }
       source.status = 'paused';
-      source.stream?.getTracks().forEach((t) => (t.enabled = false));
+      tracks.forEach((t) => (t.enabled = false));
       this.notifyChange();
     }
   }
@@ -220,8 +246,17 @@ export class VideoSourceManager {
   resumeSource(id: string) {
     const source = this.sources.get(id);
     if (source && source.status === 'paused') {
+      if (!source.stream) {
+        console.warn(`Source ${id} has no active stream to resume`);
+        return;
+      }
+      const tracks = source.stream.getTracks();
+      if (!tracks.length) {
+        console.warn(`Source ${id} stream has no tracks`);
+        return;
+      }
       source.status = 'active';
-      source.stream?.getTracks().forEach((t) => (t.enabled = true));
+      tracks.forEach((t) => (t.enabled = true));
       this.notifyChange();
     }
   }
