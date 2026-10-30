@@ -80,4 +80,32 @@ describe('AudioEngine', () => {
     expect(engine.isCapturing).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('still emits data for a fully silent frame (all -Infinity frequency bins, all-zero time domain)', async () => {
+    class SilentAnalyserNode extends FakeAnalyserNode {
+      getFloatFrequencyData = vi.fn((arr: Float32Array) => arr.fill(-Infinity));
+      getFloatTimeDomainData = vi.fn((arr: Float32Array) => arr.fill(0));
+    }
+    class SilentAudioContext extends FakeAudioContext {
+      createAnalyser() {
+        return new SilentAnalyserNode();
+      }
+    }
+    vi.stubGlobal('AudioContext', SilentAudioContext);
+
+    const track = { stop: vi.fn() };
+    const getUserMedia = vi.fn(() => Promise.resolve(fakeStream(track)));
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+
+    const engine = new AudioEngine();
+    const onData = vi.fn();
+    engine.on('data', onData);
+
+    await engine.startCapture();
+
+    expect(onData).toHaveBeenCalledTimes(1);
+    const payload = onData.mock.calls[0][0];
+    expect(Array.from(payload.frequencyData as Float32Array).every((v: number) => v === -Infinity)).toBe(true);
+    expect(Array.from(payload.timeDomainData as Float32Array).every((v: number) => v === 0)).toBe(true);
+  });
 });

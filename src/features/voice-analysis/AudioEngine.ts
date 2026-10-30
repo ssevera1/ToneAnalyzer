@@ -3,6 +3,7 @@ type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
+const MIN_FILE_SAMPLE_COUNT = 256; // Minimum decoded samples for a loaded file to be analyzable
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -169,6 +170,13 @@ export class AudioEngine {
       await this.stop();
       throw new Error(
         `Failed to decode audio file: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    if (audioBuffer.length < MIN_FILE_SAMPLE_COUNT) {
+      await this.stop();
+      throw new Error(
+        `Audio buffer too small (${audioBuffer.length} samples). Minimum required is ${MIN_FILE_SAMPLE_COUNT} samples.`
       );
     }
 
