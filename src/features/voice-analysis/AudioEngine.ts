@@ -3,7 +3,7 @@ type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
-const MIN_PCM_BUFFER_SIZE = 256; // Minimum valid PCM buffer size
+const MIN_FILE_SAMPLE_COUNT = 256; // Minimum decoded samples for a loaded file to be analyzable
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -15,8 +15,6 @@ export class AudioEngine {
   private _isCapturing = false;
   private _isFileLoaded = false;
   private setupLock: Promise<void> = Promise.resolve();
-  private lastDataEmitTime: number = 0;
-  private consecutiveUnderrunCount: number = 0;
 
   readonly fftSize = 8192;
 
@@ -35,40 +33,6 @@ export class AudioEngine {
 
   private emit(event: AudioEventType, data: any) {
     this.listeners.get(event)?.forEach((cb) => cb(data));
-  }
-
-  private validatePCMData(frequencyData: Float32Array, timeDomainData: Float32Array): boolean {
-    if (!frequencyData || !timeDomainData) return false;
-    if (frequencyData.length < MIN_PCM_BUFFER_SIZE || timeDomainData.length < MIN_PCM_BUFFER_SIZE) return false;
-    
-    let hasValidFrequencyData = false;
-    for (let i = 0; i < frequencyData.length; i++) {
-      if (isFinite(frequencyData[i]) && frequencyData[i] !== -Infinity) {
-        hasValidFrequencyData = true;
-        break;
-      }
-    }
-    
-    let hasValidTimeDomainData = false;
-    for (let i = 0; i < timeDomainData.length; i++) {
-      if (isFinite(timeDomainData[i]) && timeDomainData[i] !== 0) {
-        hasValidTimeDomainData = true;
-        break;
-      }
-    }
-    
-    return hasValidFrequencyData || hasValidTimeDomainData;
-  }
-
-  private handleBufferUnderrun(): void {
-    this.consecutiveUnderrunCount++;
-    if (this.consecutiveUnderrunCount > 10) {
-      console.warn('[AudioEngine] Persistent buffer underrun detected. Audio quality may be degraded.');
-    }
-  }
-
-  private resetUnderrunCounter(): void {
-    this.consecutiveUnderrunCount = 0;
   }
 
   async startCapture(deviceId?: string): Promise<void> {
@@ -154,7 +118,6 @@ export class AudioEngine {
 
     this._isCapturing = true;
     this._isFileLoaded = false;
-    this.consecutiveUnderrunCount = 0;
     console.log('[AudioEngine] Capture started');
     this.emit('state-change', { isCapturing: true, isFileLoaded: false });
     this.startDataLoop();
@@ -210,10 +173,10 @@ export class AudioEngine {
       );
     }
 
-    if (audioBuffer.length < MIN_PCM_BUFFER_SIZE) {
+    if (audioBuffer.length < MIN_FILE_SAMPLE_COUNT) {
       await this.stop();
       throw new Error(
-        `Audio buffer too small (${audioBuffer.length} samples). Minimum required is ${MIN_PCM_BUFFER_SIZE} samples.`
+        `Audio buffer too small (${audioBuffer.length} samples). Minimum required is ${MIN_FILE_SAMPLE_COUNT} samples.`
       );
     }
 
@@ -238,7 +201,6 @@ export class AudioEngine {
     bufferSource.start();
     this._isCapturing = false;
     this._isFileLoaded = true;
-    this.consecutiveUnderrunCount = 0;
     console.log('[AudioEngine] File playback started');
     this.emit('state-change', { isCapturing: false, isFileLoaded: true });
     this.startDataLoop();
@@ -272,17 +234,9 @@ export class AudioEngine {
         this.animationFrame = null;
         return;
       }
-      
       const frequencyData = this.getFrequencyData();
       const timeDomainData = this.getTimeDomainData();
-      
-      if (!this.validatePCMData(frequencyData, timeDomainData)) {
-        this.handleBufferUnderrun();
-      } else {
-        this.resetUnderrunCounter();
-        this.emit('data', { type: 'analysis', frequencyData, timeDomainData });
-      }
-      
+      this.emit('data', { type: 'analysis', frequencyData, timeDomainData });
       this.animationFrame = requestAnimationFrame(loop);
     };
     loop();
@@ -323,7 +277,6 @@ export class AudioEngine {
 
     this._isCapturing = false;
     this._isFileLoaded = false;
-    this.consecutiveUnderrunCount = 0;
     this.emit('state-change', { isCapturing: false, isFileLoaded: false });
   }
 
