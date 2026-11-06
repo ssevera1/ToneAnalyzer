@@ -74,13 +74,6 @@ const START_FAILED_MESSAGE = 'Failed to start speech recognition';
 // no evidence that anything works.
 const HEALTHY_SESSION_MS = 5000;
 
-class MalformedTranscriptionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'MalformedTranscriptionError';
-  }
-}
-
 export class TranscriptionService {
   readonly isSupported: boolean;
   private recognition: SpeechRecognition | null = null;
@@ -156,35 +149,42 @@ export class TranscriptionService {
     return cappedDelay + jitter;
   }
 
-  private validateTranscriptionEvent(event: SpeechRecognitionEvent): void {
+  /** Returns an error message if the event is malformed, or null if it's valid. */
+  private validateTranscriptionEvent(event: SpeechRecognitionEvent): string | null {
     if (!event || typeof event !== 'object') {
-      throw new MalformedTranscriptionError('Transcription event is null or not an object');
+      return 'Transcription event is null or not an object';
     }
-    if (typeof event.resultIndex !== 'number') {
-      throw new MalformedTranscriptionError('resultIndex is not a number');
+    if (!Number.isInteger(event.resultIndex) || event.resultIndex < 0) {
+      return 'resultIndex is not a non-negative integer';
     }
     if (!event.results || typeof event.results.length !== 'number') {
-      throw new MalformedTranscriptionError('results is missing or invalid');
+      return 'results is missing or invalid';
     }
+    if (event.resultIndex > event.results.length) {
+      return 'resultIndex exceeds results length';
+    }
+    return null;
   }
 
-  private validateTranscriptionResult(result: SpeechRecognitionResult): void {
+  /** Returns an error message if the result is malformed, or null if it's valid. */
+  private validateTranscriptionResult(result: SpeechRecognitionResult): string | null {
     if (!result || typeof result !== 'object') {
-      throw new MalformedTranscriptionError('Result is null or not an object');
+      return 'Result is null or not an object';
     }
     if (typeof result.isFinal !== 'boolean') {
-      throw new MalformedTranscriptionError('isFinal is not a boolean');
+      return 'isFinal is not a boolean';
     }
     if (typeof result.length !== 'number' || result.length === 0) {
-      throw new MalformedTranscriptionError('Result has no alternatives');
+      return 'Result has no alternatives';
     }
     const alternative = result[0];
     if (!alternative || typeof alternative !== 'object') {
-      throw new MalformedTranscriptionError('Alternative is null or not an object');
+      return 'Alternative is null or not an object';
     }
     if (typeof alternative.transcript !== 'string') {
-      throw new MalformedTranscriptionError('transcript is not a string');
+      return 'transcript is not a string';
     }
+    return null;
   }
 
   start() {
@@ -227,41 +227,38 @@ export class TranscriptionService {
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (generation !== this.generation) return;
-      
-      try {
-        this.validateTranscriptionEvent(event);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.log('error', 'Malformed transcription event received', { error: message });
-        this.emit({ type: 'error', error: message });
+
+      const eventError = this.validateTranscriptionEvent(event);
+      if (eventError) {
+        this.log('error', 'Malformed transcription event received', { error: eventError });
+        this.emit({ type: 'error', error: eventError });
         return;
       }
 
       // The service answered, so this session is demonstrably working.
       this.sawResult = true;
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        try {
-          const result = event.results[i];
-          this.validateTranscriptionResult(result);
-          const text = result[0].transcript.trim();
-          if (!text) continue;
+        const result = event.results[i];
+        const resultError = this.validateTranscriptionResult(result);
+        if (resultError) {
+          this.log('error', 'Malformed transcription result at index', { index: i, error: resultError });
+          this.emit({ type: 'error', error: resultError });
+          continue;
+        }
 
-          if (result.isFinal) {
-            this.emit({
-              type: 'segment',
-              text,
-              startTime: this.segmentStartTime,
-              endTime: Date.now(),
-            });
-            this.segmentStartTime = Date.now();
-          } else {
-            this.emit({ type: 'interim', text });
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.log('error', 'Malformed transcription result at index', { index: i, error: message });
-          this.emit({ type: 'error', error: message });
-          return;
+        const text = result[0].transcript.trim();
+        if (!text) continue;
+
+        if (result.isFinal) {
+          this.emit({
+            type: 'segment',
+            text,
+            startTime: this.segmentStartTime,
+            endTime: Date.now(),
+          });
+          this.segmentStartTime = Date.now();
+        } else {
+          this.emit({ type: 'interim', text });
         }
       }
     };

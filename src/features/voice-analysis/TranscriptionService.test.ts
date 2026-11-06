@@ -374,6 +374,73 @@ describe('TranscriptionService', () => {
     });
   });
 
+  it('emits an error and keeps listening when onresult receives a malformed event', () => {
+    const events: Array<{ type: string; text?: string; error?: string }> = [];
+    const service = new TranscriptionService();
+    service.on((event) => events.push(event));
+
+    service.start();
+    latest().fireStart();
+
+    latest().onresult?.({});
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(1);
+
+    // The service keeps working afterwards; a bad event doesn't kill the session.
+    latest().fireFinalResult('hello');
+    expect(events.filter((e) => e.type === 'segment').map((e) => e.text)).toEqual(['hello']);
+  });
+
+  it('treats a NaN resultIndex as malformed instead of silently processing nothing', () => {
+    const events: Array<{ type: string; error?: string }> = [];
+    const service = new TranscriptionService();
+    service.on((event) => events.push(event));
+
+    service.start();
+    latest().fireStart();
+
+    latest().onresult?.({ resultIndex: NaN, results: { length: 1 } });
+
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'segment')).toHaveLength(0);
+  });
+
+  it('skips a malformed result but still emits valid sibling results in the same event', () => {
+    const events: Array<{ type: string; text?: string; error?: string }> = [];
+    const service = new TranscriptionService();
+    service.on((event) => events.push(event));
+
+    service.start();
+    latest().fireStart();
+
+    // Index 0 is missing `isFinal`; index 1 is a valid final result.
+    latest().onresult?.({
+      resultIndex: 0,
+      results: {
+        length: 2,
+        0: { length: 1, 0: { transcript: 'bad', confidence: 1 } },
+        1: { isFinal: true, length: 1, 0: { transcript: 'good', confidence: 1 } },
+      },
+    });
+
+    expect(events.filter((e) => e.type === 'error')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'segment').map((e) => e.text)).toEqual(['good']);
+  });
+
+  it('does not mislabel a listener exception as a malformed transcription result', () => {
+    const service = new TranscriptionService();
+    service.on((event) => {
+      if (event.type === 'segment') throw new Error('consumer bug');
+    });
+
+    service.start();
+    latest().fireStart();
+
+    expect(() => latest().fireFinalResult('hello')).toThrow('consumer bug');
+    expect(console.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('Malformed transcription result')
+    );
+  });
+
   it('allows a fresh start() after stop()', () => {
     const service = new TranscriptionService();
     service.start();
