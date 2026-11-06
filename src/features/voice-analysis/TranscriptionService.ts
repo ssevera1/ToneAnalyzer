@@ -149,6 +149,44 @@ export class TranscriptionService {
     return cappedDelay + jitter;
   }
 
+  /** Returns an error message if the event is malformed, or null if it's valid. */
+  private validateTranscriptionEvent(event: SpeechRecognitionEvent): string | null {
+    if (!event || typeof event !== 'object') {
+      return 'Transcription event is null or not an object';
+    }
+    if (!Number.isInteger(event.resultIndex) || event.resultIndex < 0) {
+      return 'resultIndex is not a non-negative integer';
+    }
+    if (!event.results || typeof event.results.length !== 'number') {
+      return 'results is missing or invalid';
+    }
+    if (event.resultIndex > event.results.length) {
+      return 'resultIndex exceeds results length';
+    }
+    return null;
+  }
+
+  /** Returns an error message if the result is malformed, or null if it's valid. */
+  private validateTranscriptionResult(result: SpeechRecognitionResult): string | null {
+    if (!result || typeof result !== 'object') {
+      return 'Result is null or not an object';
+    }
+    if (typeof result.isFinal !== 'boolean') {
+      return 'isFinal is not a boolean';
+    }
+    if (typeof result.length !== 'number' || result.length === 0) {
+      return 'Result has no alternatives';
+    }
+    const alternative = result[0];
+    if (!alternative || typeof alternative !== 'object') {
+      return 'Alternative is null or not an object';
+    }
+    if (typeof alternative.transcript !== 'string') {
+      return 'transcript is not a string';
+    }
+    return null;
+  }
+
   start() {
     // `starting` covers the window between start() and onstart, including any
     // backoff gap, during which `running` is still false.
@@ -189,10 +227,25 @@ export class TranscriptionService {
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (generation !== this.generation) return;
+
+      const eventError = this.validateTranscriptionEvent(event);
+      if (eventError) {
+        this.log('error', 'Malformed transcription event received', { error: eventError });
+        this.emit({ type: 'error', error: eventError });
+        return;
+      }
+
       // The service answered, so this session is demonstrably working.
       this.sawResult = true;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
+        const resultError = this.validateTranscriptionResult(result);
+        if (resultError) {
+          this.log('error', 'Malformed transcription result at index', { index: i, error: resultError });
+          this.emit({ type: 'error', error: resultError });
+          continue;
+        }
+
         const text = result[0].transcript.trim();
         if (!text) continue;
 
