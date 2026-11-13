@@ -3,6 +3,7 @@ type AudioEventCallback = (data: any) => void;
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
+const MIN_FREQUENCY_BIN_COUNT = 256; // Minimum expected analyser output size
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -32,6 +33,24 @@ export class AudioEngine {
 
   private emit(event: AudioEventType, data: any) {
     this.listeners.get(event)?.forEach((cb) => cb(data));
+  }
+
+  private validateAudioContext(): void {
+    if (!this.audioContext) {
+      throw new Error('Audio context is not initialized');
+    }
+    if (this.audioContext.state === 'closed') {
+      throw new Error('Audio context is closed');
+    }
+  }
+
+  private validateAnalyserNode(): void {
+    if (!this.analyserNode) {
+      throw new Error('Analyser node is not initialized');
+    }
+    if (this.analyserNode.frequencyBinCount < MIN_FREQUENCY_BIN_COUNT) {
+      throw new Error(`Analyser buffer size is invalid: ${this.analyserNode.frequencyBinCount}`);
+    }
   }
 
   async startCapture(deviceId?: string): Promise<void> {
@@ -112,6 +131,21 @@ export class AudioEngine {
     this.analyserNode.fftSize = this.fftSize;
     this.analyserNode.smoothingTimeConstant = 0.3;
 
+    try {
+      this.validateAudioContext();
+      this.validateAnalyserNode();
+    } catch (error) {
+      console.error('[AudioEngine] Audio context validation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      stream.getTracks().forEach((t) => t.stop());
+      await this.audioContext.close();
+      this.audioContext = null;
+      this.analyserNode = null;
+      this.emit('state-change', { isCapturing: false, isFileLoaded: false });
+      throw error;
+    }
+
     this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
     this.sourceNode.connect(this.analyserNode);
 
@@ -176,6 +210,17 @@ export class AudioEngine {
     this.analyserNode.fftSize = this.fftSize;
     this.analyserNode.smoothingTimeConstant = 0.3;
 
+    try {
+      this.validateAudioContext();
+      this.validateAnalyserNode();
+    } catch (error) {
+      console.error('[AudioEngine] Audio context validation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.stop();
+      throw error;
+    }
+
     const bufferSource = this.audioContext.createBufferSource();
     bufferSource.buffer = audioBuffer;
     bufferSource.connect(this.analyserNode);
@@ -223,6 +268,16 @@ export class AudioEngine {
     if (this.animationFrame !== null) return; // prevent stacking
     const loop = () => {
       if (!this.analyserNode) {
+        this.animationFrame = null;
+        return;
+      }
+      try {
+        this.validateAudioContext();
+        this.validateAnalyserNode();
+      } catch (error) {
+        console.error('[AudioEngine] Audio context became invalid during data loop', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         this.animationFrame = null;
         return;
       }
