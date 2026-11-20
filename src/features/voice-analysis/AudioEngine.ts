@@ -15,6 +15,7 @@ export class AudioEngine {
   private _isCapturing = false;
   private _isFileLoaded = false;
   private setupLock: Promise<void> = Promise.resolve();
+  private lastValidAudioContextState: AudioContextState | null = null;
 
   readonly fftSize = 8192;
 
@@ -50,6 +51,38 @@ export class AudioEngine {
     }
     if (this.analyserNode.frequencyBinCount < MIN_FREQUENCY_BIN_COUNT) {
       throw new Error(`Analyser buffer size is invalid: ${this.analyserNode.frequencyBinCount}`);
+    }
+  }
+
+  // 'interrupted' (e.g. iOS incoming call/Siri) is transient and the context
+  // can return to 'running' on its own, so this only reports the transition
+  // via a state-change event instead of throwing and killing the data loop.
+  private validateBufferState(): void {
+    if (!this.audioContext) {
+      throw new Error('Cannot validate buffer state: audio context not initialized');
+    }
+
+    const currentState = this.audioContext.state;
+
+    if (currentState === 'interrupted' && this.lastValidAudioContextState === 'running') {
+      this.lastValidAudioContextState = currentState;
+      this.emit('state-change', {
+        isCapturing: this._isCapturing,
+        isFileLoaded: this._isFileLoaded,
+        isInterrupted: true,
+      });
+      return;
+    }
+
+    if (currentState === 'running') {
+      if (this.lastValidAudioContextState === 'interrupted') {
+        this.emit('state-change', {
+          isCapturing: this._isCapturing,
+          isFileLoaded: this._isFileLoaded,
+          isInterrupted: false,
+        });
+      }
+      this.lastValidAudioContextState = currentState;
     }
   }
 
@@ -127,6 +160,7 @@ export class AudioEngine {
 
     this.stream = stream;
     this.audioContext = audioContext;
+    this.lastValidAudioContextState = audioContext.state;
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = this.fftSize;
     this.analyserNode.smoothingTimeConstant = 0.3;
@@ -134,6 +168,7 @@ export class AudioEngine {
     try {
       this.validateAudioContext();
       this.validateAnalyserNode();
+      this.validateBufferState();
     } catch (error) {
       console.error('[AudioEngine] Audio context validation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -190,6 +225,7 @@ export class AudioEngine {
     }
 
     this.audioContext = audioContext;
+    this.lastValidAudioContextState = audioContext.state;
 
     let audioBuffer: AudioBuffer;
     try {
@@ -213,6 +249,7 @@ export class AudioEngine {
     try {
       this.validateAudioContext();
       this.validateAnalyserNode();
+      this.validateBufferState();
     } catch (error) {
       console.error('[AudioEngine] Audio context validation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -274,6 +311,7 @@ export class AudioEngine {
       try {
         this.validateAudioContext();
         this.validateAnalyserNode();
+        this.validateBufferState();
       } catch (error) {
         console.error('[AudioEngine] Audio context became invalid during data loop', {
           error: error instanceof Error ? error.message : String(error),
@@ -324,6 +362,7 @@ export class AudioEngine {
 
     this._isCapturing = false;
     this._isFileLoaded = false;
+    this.lastValidAudioContextState = null;
     this.emit('state-change', { isCapturing: false, isFileLoaded: false });
   }
 

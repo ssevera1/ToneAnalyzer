@@ -15,6 +15,7 @@ class FakeAnalyserNode {
 
 class FakeAudioContext {
   sampleRate = 44100;
+  state: AudioContextState = 'running';
   createAnalyser() {
     return new FakeAnalyserNode();
   }
@@ -79,5 +80,42 @@ describe('AudioEngine', () => {
 
     expect(engine.isCapturing).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reports a transient context interruption via state-change without killing the data loop', async () => {
+    const track = { stop: vi.fn() };
+    const getUserMedia = vi.fn(() => Promise.resolve(fakeStream(track)));
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+
+    let rafCallback: (() => void) | undefined;
+    vi.stubGlobal('requestAnimationFrame', vi.fn((cb: () => void) => {
+      rafCallback = cb;
+      return 1;
+    }));
+
+    const engine = new AudioEngine();
+    const stateChanges: any[] = [];
+    engine.on('state-change', (data) => stateChanges.push(data));
+
+    await engine.startCapture();
+    expect(engine.isCapturing).toBe(true);
+
+    const audioContext = (engine as unknown as { audioContext: FakeAudioContext }).audioContext;
+
+    // Simulate a transient system interruption (e.g. iOS incoming call/Siri).
+    audioContext.state = 'interrupted';
+    rafCallback?.();
+
+    expect(engine.isCapturing).toBe(true);
+    expect(stateChanges[stateChanges.length - 1]).toMatchObject({ isCapturing: true, isInterrupted: true });
+    // The data loop must keep scheduling frames instead of permanently stopping.
+    expect((engine as unknown as { animationFrame: number | null }).animationFrame).not.toBeNull();
+
+    // System resumes playback; the engine should report recovery too.
+    audioContext.state = 'running';
+    rafCallback?.();
+
+    expect(stateChanges[stateChanges.length - 1]).toMatchObject({ isCapturing: true, isInterrupted: false });
+    expect((engine as unknown as { animationFrame: number | null }).animationFrame).not.toBeNull();
   });
 });
