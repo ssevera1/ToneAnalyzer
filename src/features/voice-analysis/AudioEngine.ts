@@ -4,7 +4,6 @@ type AudioEventCallback = (data: any) => void;
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
 const MIN_FREQUENCY_BIN_COUNT = 256; // Minimum expected analyser output size
-const AUDIO_BUFFER_UNDERRUN_THRESHOLD = 0.1; // 100ms threshold for underrun detection
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -17,7 +16,6 @@ export class AudioEngine {
   private _isFileLoaded = false;
   private setupLock: Promise<void> = Promise.resolve();
   private lastValidAudioContextState: AudioContextState | null = null;
-  private bufferUnderrunDetected = false;
 
   readonly fftSize = 8192;
 
@@ -56,42 +54,35 @@ export class AudioEngine {
     }
   }
 
+  // 'interrupted' (e.g. iOS incoming call/Siri) is transient and the context
+  // can return to 'running' on its own, so this only reports the transition
+  // via a state-change event instead of throwing and killing the data loop.
   private validateBufferState(): void {
     if (!this.audioContext) {
       throw new Error('Cannot validate buffer state: audio context not initialized');
     }
 
     const currentState = this.audioContext.state;
-    
+
     if (currentState === 'interrupted' && this.lastValidAudioContextState === 'running') {
-      throw new Error('Audio context interrupted: playback paused by system');
-    }
-
-    if (currentState === 'running') {
       this.lastValidAudioContextState = currentState;
-    }
-  }
-
-  private detectBufferUnderrun(): void {
-    if (!this.audioContext || !this._isFileLoaded) {
+      this.emit('state-change', {
+        isCapturing: this._isCapturing,
+        isFileLoaded: this._isFileLoaded,
+        isInterrupted: true,
+      });
       return;
     }
 
-    if (this.sourceNode && 'playbackRate' in this.sourceNode) {
-      const bufferSource = this.sourceNode as AudioBufferSourceNode;
-      if (bufferSource.buffer && this.audioContext.currentTime) {
-        const timeUntilEnd = bufferSource.buffer.duration - 
-          (this.audioContext.currentTime - (bufferSource as any).startTime || 0);
-        
-        if (timeUntilEnd < AUDIO_BUFFER_UNDERRUN_THRESHOLD && timeUntilEnd > 0) {
-          if (!this.bufferUnderrunDetected) {
-            this.bufferUnderrunDetected = true;
-            console.warn('[AudioEngine] Buffer underrun detected, approaching end of playback');
-          }
-        } else if (timeUntilEnd >= AUDIO_BUFFER_UNDERRUN_THRESHOLD) {
-          this.bufferUnderrunDetected = false;
-        }
+    if (currentState === 'running') {
+      if (this.lastValidAudioContextState === 'interrupted') {
+        this.emit('state-change', {
+          isCapturing: this._isCapturing,
+          isFileLoaded: this._isFileLoaded,
+          isInterrupted: false,
+        });
       }
+      this.lastValidAudioContextState = currentState;
     }
   }
 
@@ -273,7 +264,6 @@ export class AudioEngine {
     this.analyserNode.connect(this.audioContext.destination);
 
     this.sourceNode = bufferSource;
-    this.bufferUnderrunDetected = false;
 
     bufferSource.onended = () => {
       console.log('[AudioEngine] File playback ended');
@@ -322,7 +312,6 @@ export class AudioEngine {
         this.validateAudioContext();
         this.validateAnalyserNode();
         this.validateBufferState();
-        this.detectBufferUnderrun();
       } catch (error) {
         console.error('[AudioEngine] Audio context became invalid during data loop', {
           error: error instanceof Error ? error.message : String(error),
@@ -373,7 +362,6 @@ export class AudioEngine {
 
     this._isCapturing = false;
     this._isFileLoaded = false;
-    this.bufferUnderrunDetected = false;
     this.lastValidAudioContextState = null;
     this.emit('state-change', { isCapturing: false, isFileLoaded: false });
   }
