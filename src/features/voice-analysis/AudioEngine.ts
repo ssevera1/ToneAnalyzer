@@ -4,6 +4,7 @@ type AudioEventCallback = (data: any) => void;
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const MICROPHONE_ACCESS_TIMEOUT = 10000; // 10 seconds
 const MIN_FREQUENCY_BIN_COUNT = 256; // Minimum expected analyser output size
+const AUDIO_BUFFER_UNDERRUN_THRESHOLD = 0.1; // 100ms threshold for underrun detection
 
 export class AudioEngine {
   private audioContext: AudioContext | null = null;
@@ -15,6 +16,8 @@ export class AudioEngine {
   private _isCapturing = false;
   private _isFileLoaded = false;
   private setupLock: Promise<void> = Promise.resolve();
+  private lastValidAudioContextState: AudioContextState | null = null;
+  private bufferUnderrunDetected = false;
 
   readonly fftSize = 8192;
 
@@ -50,6 +53,45 @@ export class AudioEngine {
     }
     if (this.analyserNode.frequencyBinCount < MIN_FREQUENCY_BIN_COUNT) {
       throw new Error(`Analyser buffer size is invalid: ${this.analyserNode.frequencyBinCount}`);
+    }
+  }
+
+  private validateBufferState(): void {
+    if (!this.audioContext) {
+      throw new Error('Cannot validate buffer state: audio context not initialized');
+    }
+
+    const currentState = this.audioContext.state;
+    
+    if (currentState === 'interrupted' && this.lastValidAudioContextState === 'running') {
+      throw new Error('Audio context interrupted: playback paused by system');
+    }
+
+    if (currentState === 'running') {
+      this.lastValidAudioContextState = currentState;
+    }
+  }
+
+  private detectBufferUnderrun(): void {
+    if (!this.audioContext || !this._isFileLoaded) {
+      return;
+    }
+
+    if (this.sourceNode && 'playbackRate' in this.sourceNode) {
+      const bufferSource = this.sourceNode as AudioBufferSourceNode;
+      if (bufferSource.buffer && this.audioContext.currentTime) {
+        const timeUntilEnd = bufferSource.buffer.duration - 
+          (this.audioContext.currentTime - (bufferSource as any).startTime || 0);
+        
+        if (timeUntilEnd < AUDIO_BUFFER_UNDERRUN_THRESHOLD && timeUntilEnd > 0) {
+          if (!this.bufferUnderrunDetected) {
+            this.bufferUnderrunDetected = true;
+            console.warn('[AudioEngine] Buffer underrun detected, approaching end of playback');
+          }
+        } else if (timeUntilEnd >= AUDIO_BUFFER_UNDERRUN_THRESHOLD) {
+          this.bufferUnderrunDetected = false;
+        }
+      }
     }
   }
 
@@ -127,6 +169,7 @@ export class AudioEngine {
 
     this.stream = stream;
     this.audioContext = audioContext;
+    this.lastValidAudioContextState = audioContext.state;
     this.analyserNode = this.audioContext.createAnalyser();
     this.analyserNode.fftSize = this.fftSize;
     this.analyserNode.smoothingTimeConstant = 0.3;
@@ -134,6 +177,7 @@ export class AudioEngine {
     try {
       this.validateAudioContext();
       this.validateAnalyserNode();
+      this.validateBufferState();
     } catch (error) {
       console.error('[AudioEngine] Audio context validation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -190,6 +234,7 @@ export class AudioEngine {
     }
 
     this.audioContext = audioContext;
+    this.lastValidAudioContextState = audioContext.state;
 
     let audioBuffer: AudioBuffer;
     try {
@@ -213,6 +258,7 @@ export class AudioEngine {
     try {
       this.validateAudioContext();
       this.validateAnalyserNode();
+      this.validateBufferState();
     } catch (error) {
       console.error('[AudioEngine] Audio context validation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -227,6 +273,7 @@ export class AudioEngine {
     this.analyserNode.connect(this.audioContext.destination);
 
     this.sourceNode = bufferSource;
+    this.bufferUnderrunDetected = false;
 
     bufferSource.onended = () => {
       console.log('[AudioEngine] File playback ended');
@@ -274,6 +321,8 @@ export class AudioEngine {
       try {
         this.validateAudioContext();
         this.validateAnalyserNode();
+        this.validateBufferState();
+        this.detectBufferUnderrun();
       } catch (error) {
         console.error('[AudioEngine] Audio context became invalid during data loop', {
           error: error instanceof Error ? error.message : String(error),
@@ -324,6 +373,8 @@ export class AudioEngine {
 
     this._isCapturing = false;
     this._isFileLoaded = false;
+    this.bufferUnderrunDetected = false;
+    this.lastValidAudioContextState = null;
     this.emit('state-change', { isCapturing: false, isFileLoaded: false });
   }
 
